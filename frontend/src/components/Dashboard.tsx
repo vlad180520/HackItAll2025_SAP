@@ -174,7 +174,9 @@ function Dashboard({ apiKey }: DashboardProps) {
         )}
         {activeTab === 'penalties' && (
           <div>
-            <PenaltyLog penalties={status?.penalties || []} />
+            <PenaltyLog penalties={
+              history?.cost_log.flatMap(entry => entry.penalties || []) || []
+            } />
           </div>
         )}
       </div>
