@@ -6,6 +6,7 @@ import InventoryChart from './InventoryChart';
 import CostBreakdown from './CostBreakdown';
 import PenaltyLog from './PenaltyLog';
 import RoundCostTable from './RoundCostTable';
+import StatsCounter from './StatsCounter';
 import './Dashboard.css';
 
 interface DashboardProps {
@@ -21,7 +22,7 @@ function Dashboard({ apiKey }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<'monitoring' | 'costs' | 'inventory' | 'penalties' | 'roundCosts'>('monitoring');
   const [showAllRounds, setShowAllRounds] = useState(false);
 
-  // Poll for updates every 2 seconds
+  // Poll for updates - faster when running, slower when idle
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -41,10 +42,13 @@ function Dashboard({ apiKey }: DashboardProps) {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 2000);
+    
+    // Poll faster when running (3s), slower when idle (10s)
+    const pollInterval = status?.status === 'running' ? 3000 : 10000;
+    const interval = setInterval(fetchData, pollInterval);
 
     return () => clearInterval(interval);
-  }, [showAllRounds]);
+  }, [showAllRounds, status?.status]);
 
   const handleStartSimulation = async () => {
     if (!apiKey) {
@@ -83,9 +87,32 @@ function Dashboard({ apiKey }: DashboardProps) {
         <div className="status-info">
           <h2>Status: {status?.status || 'not_started'}</h2>
           <p>Round: {status?.round || 0} / 720</p>
-          <p>Total Cost: {status?.costs_formatted || (typeof status?.costs === 'number' ? status.costs.toFixed(2) : '0,00')}</p>
+          <p>
+            <strong>Total Cost:</strong>{' '}
+            {status?.costs_formatted || (typeof status?.costs === 'number' ? status.costs.toFixed(2) : '0,00')}
+          </p>
+          {status && history && history.cost_log && history.cost_log.length > 0 && (() => {
+            // Calculate total penalties
+            const totalPenalties = history.cost_log.reduce((sum, entry) => {
+              const penalties = entry.penalties || [];
+              const penaltyCost = penalties.reduce((pSum: number, p: any) => pSum + (p.cost || 0), 0);
+              return sum + penaltyCost;
+            }, 0);
+            const totalCost = typeof status.costs === 'number' ? status.costs : 0;
+            const costWithoutPenalties = totalCost - totalPenalties;
+            
+            return (
+              <p>
+                <strong>Total Cost (without penalties):</strong>{' '}
+                {costWithoutPenalties.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            );
+          })()}
           {status?.status === 'running' && (
             <p style={{ color: '#4CAF50', fontWeight: 'bold' }}>● Simulation Running...</p>
+          )}
+          {status?.status === 'completed' && (
+            <p style={{ color: '#2196F3', fontWeight: 'bold' }}>✓ Simulation Completed</p>
           )}
         </div>
         {status?.status === 'running' ? (
@@ -95,6 +122,14 @@ function Dashboard({ apiKey }: DashboardProps) {
             className="start-button stop-button"
           >
             {loading ? 'Stopping...' : 'Stop Simulation'}
+          </button>
+        ) : status?.status === 'completed' ? (
+          <button
+            onClick={handleStartSimulation}
+            disabled={loading}
+            className="start-button"
+          >
+            {loading ? 'Starting...' : 'Start New Simulation'}
           </button>
         ) : (
           <button
@@ -108,6 +143,8 @@ function Dashboard({ apiKey }: DashboardProps) {
       </div>
 
       {error && <div className="error-message">{error}</div>}
+
+      <StatsCounter status={status} />
 
       <div className="tabs">
         <button

@@ -35,6 +35,10 @@ class GameState(BaseModel):
     penalty_log: List[PenaltyRecord]
     flight_history: List[Flight]
     
+    # Cumulative counters (never decrease)
+    cumulative_decisions: int = 0
+    cumulative_purchases: int = 0
+    
     def get_current_time(self) -> ReferenceHour:
         """Get current reference hour."""
         return ReferenceHour(day=self.current_day, hour=self.current_hour)

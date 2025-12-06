@@ -9,37 +9,31 @@ from models.kit import KitLoadDecision, KitPurchaseOrder
 from models.airport import Airport
 from models.aircraft import AircraftType
 from solution.config import SolutionConfig
-from solution.strategies.rolling_lp_strategy import RollingLPStrategy
+from solution.strategies.genetic_strategy import GeneticStrategy, GeneticConfig
 
 logger = logging.getLogger(__name__)
 
 
 class DecisionMaker:
-    """
-    Main decision maker that coordinates solution strategy.
-    
-    Uses RollingLPStrategy - rolling-horizon min-cost flow/MILP optimization.
-    Falls back to heuristic if solver not available.
-    """
+    """Main decision maker - uses Genetic Algorithm strategy."""
     
     def __init__(self, config: SolutionConfig = None):
-        """
-        Initialize decision maker.
-        
-        Args:
-            config: Solution configuration (uses default if None)
-        """
         if config is None:
             config = SolutionConfig.default()
         
         self.config = config
-        self.strategy = RollingLPStrategy(
-            config=config,
-            horizon_hours=18,  # 18-hour rolling horizon for optimal speed
-            solver_timeout_s=2  # 2-second timeout for MILP solver
-        )
         
-        logger.info("DecisionMaker initialized with RollingLPStrategy (MILP 18h horizon)")
+        # Use default GeneticConfig for consistency
+        # Parameters optimized for speed/accuracy balance
+        ga_config = GeneticConfig()
+        
+        self.strategy = GeneticStrategy(config=self.config, ga_config=ga_config)
+        
+        logger.info(
+            f"DecisionMaker initialized with GeneticStrategy: "
+            f"pop={ga_config.population_size}, gens={ga_config.num_generations}, "
+            f"horizon={ga_config.horizon_hours}h"
+        )
     
     def make_decisions(
         self,
@@ -49,7 +43,7 @@ class DecisionMaker:
         aircraft_types: Dict[str, AircraftType],
     ) -> Tuple[List[KitLoadDecision], List[KitPurchaseOrder]]:
         """
-        Make all decisions for current round.
+        Make all decisions for current round using Genetic Algorithm.
         
         Args:
             state: Current game state
@@ -79,16 +73,20 @@ class DecisionMaker:
             return [], []
     
     def update_config(self, new_config: SolutionConfig):
-        """
-        Update configuration and recreate strategy.
-        
-        Args:
-            new_config: New configuration
-        """
+        """Update configuration and recreate genetic strategy with optimized parameters."""
         self.config = new_config
-        self.strategy = RollingLPStrategy(
-            config=new_config,
-            horizon_hours=48,
-            solver_timeout_s=5
+        
+        ga_config = GeneticConfig(
+            population_size=60,
+            num_generations=40,
+            tournament_size=4,
+            crossover_rate=0.85,
+            mutation_rate=0.15,
+            elitism_count=3,
+            horizon_hours=3,
+            no_improvement_limit=12
         )
-        logger.info("Configuration updated, strategy recreated")
+        
+        self.strategy = GeneticStrategy(config=new_config, ga_config=ga_config)
+        logger.info("Configuration updated, GeneticStrategy recreated with optimized parameters")
+

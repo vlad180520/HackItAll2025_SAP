@@ -82,6 +82,8 @@ export interface StatusResponse {
   costs: number | Record<string, number>;
   costs_formatted?: string;  // Formatted cost string with European formatting (e.g., "12.345,67")
   penalties: PenaltyRecord[];
+  cumulative_decisions?: number;  // Never decreases
+  cumulative_purchases?: number;  // Never decreases
 }
 
 export interface InventoryResponse {

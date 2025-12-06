@@ -1,0 +1,75 @@
+.stats-counter {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.stat-card.decisions {
+  border-left: 4px solid #4CAF50;
+}
+
+.stat-card.purchases {
+  border-left: 4px solid #2196F3;
+}
+
+.stat-icon {
+  font-size: 2.5rem;
+  margin-right: 16px;
+  opacity: 0.8;
+}
+
+.stat-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #333;
+  animation: countUpdate 0.3s ease-out;
+}
+
+@keyframes countUpdate {
+  0% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .stats-counter {
+    flex-direction: column;
+  }
+  
+  .stat-value {
+    font-size: 1.5rem;
+  }
+}

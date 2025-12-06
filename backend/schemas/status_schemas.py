@@ -12,6 +12,8 @@ class StatusResponse(BaseModel):
     costs: Union[float, Dict[str, float]]
     costs_formatted: Optional[str] = Field(None, description="Formatted cost string with thousand separators")
     penalties: List[Dict[str, Any]]
+    cumulative_decisions: int = 0
+    cumulative_purchases: int = 0
 
 
 class InventoryResponse(BaseModel):

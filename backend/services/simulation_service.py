@@ -83,11 +83,11 @@ class SimulationService:
         Get current simulation status.
         
         Returns:
-            Status dictionary with formatted costs
+            Status dictionary with formatted costs and cumulative counters
         """
         # If simulation is running, get live data from runner
         if self.simulation_runner is not None:
-            state = self.simulation_runner.state_manager.current_state
+            state = self.simulation_runner.state_manager.state
             # Count rounds from decision log
             rounds = len(self.simulation_runner.decision_log)
             return {
@@ -96,6 +96,8 @@ class SimulationService:
                 "costs": state.total_cost,  # Numeric value
                 "costs_formatted": format_cost(state.total_cost),  # Formatted string
                 "penalties": [p.dict() for p in state.penalty_log[-10:]],  # Last 10 penalties
+                "cumulative_decisions": state.cumulative_decisions,
+                "cumulative_purchases": state.cumulative_purchases,
             }
         
         # If simulation completed, get from final report
@@ -110,12 +112,15 @@ class SimulationService:
                 penalty_log = []
             
             total_cost = self.simulation_state.get("total_cost", 0.0)
+            final_state = self.simulation_state.get("final_state", {})
             return {
                 "status": "completed",
                 "round": self.simulation_state.get("rounds_completed", 0),
                 "costs": total_cost,  # Numeric value
                 "costs_formatted": format_cost(total_cost),  # Formatted string
                 "penalties": penalty_log[-10:],  # Last 10 penalties
+                "cumulative_decisions": final_state.get("cumulative_decisions", 0),
+                "cumulative_purchases": final_state.get("cumulative_purchases", 0),
             }
         
         # No simulation started
@@ -125,6 +130,8 @@ class SimulationService:
             "costs": 0.0,
             "costs_formatted": "0,00",
             "penalties": [],
+            "cumulative_decisions": 0,
+            "cumulative_purchases": 0,
         }
     
     def get_inventory(self) -> Dict:

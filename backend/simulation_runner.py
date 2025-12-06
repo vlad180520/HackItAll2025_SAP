@@ -159,6 +159,10 @@ class SimulationRunner:
                     # Update state with response (this updates time to match API)
                     self._update_state_from_response(response, current_time)
                     
+                    # Update cumulative counters
+                    self.state_manager.state.cumulative_decisions += len(decisions)
+                    self.state_manager.state.cumulative_purchases += len(purchases)
+                    
                     # Extract time and cost from API response
                     response_day = response.get("day", current_time.day)
                     response_hour = response.get("hour", current_time.hour)
@@ -245,25 +249,25 @@ class SimulationRunner:
     
     def _get_visible_flights(self, current_time: ReferenceHour) -> List[Flight]:
         """
-        Get flights visible at current time.
-        
-        Args:
-            current_time: Current reference hour
-            
-        Returns:
-            List of visible flights
+        Get all flights that are relevant for planning.
+        Simple logic: include all future flights within 7 days.
         """
-        # Flights are visible if they are scheduled to depart at or after current time
-        # and haven't landed yet (or are in the near future)
-        visible = []
+        current_hours = current_time.to_hours()
+        future_limit = current_hours + (7 * 24)  # 7 days ahead
         
+        visible = []
         for flight in self.state_manager.state.flight_history:
-            if (
-                flight.scheduled_departure >= current_time
-                and (flight.actual_arrival is None or flight.actual_arrival >= current_time)
-            ):
+            # Skip landed flights
+            if flight.event_type == "LANDED":
+                continue
+            
+            dep_hours = flight.scheduled_departure.to_hours()
+            
+            # Include if departing in the future (within 7 days)
+            if current_hours <= dep_hours <= future_limit:
                 visible.append(flight)
         
+        logger.debug(f"Visible flights: {len(visible)} (SCHEDULED={sum(1 for f in visible if f.event_type == 'SCHEDULED')})")
         return visible
     
     def _update_state_from_response(
@@ -330,6 +334,18 @@ class SimulationRunner:
                 self.state_manager.state.flight_history[existing] = flight
             else:
                 self.state_manager.state.flight_history.append(flight)
+        
+        # Clean old landed flights once per day
+        if current_time.hour == 0:
+            cutoff = current_time.to_hours() - 48  # Keep last 2 days
+            before = len(self.state_manager.state.flight_history)
+            self.state_manager.state.flight_history = [
+                f for f in self.state_manager.state.flight_history
+                if f.event_type != "LANDED" or f.scheduled_arrival.to_hours() >= cutoff
+            ]
+            removed = before - len(self.state_manager.state.flight_history)
+            if removed > 0:
+                logger.info(f"Cleaned {removed} old flights")
         
         # Update penalties (PenaltyDto format)
         penalties = response.get("penalties", [])

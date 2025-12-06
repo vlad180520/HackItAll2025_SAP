@@ -1,7 +1,5 @@
 """Solution strategies package."""
 
-from solution.strategies.greedy_strategy import GreedyKitStrategy
-from solution.strategies.rolling_lp_strategy import RollingLPStrategy
-from solution.strategies.aggressive_strategy import AggressiveStrategy
+from solution.strategies.genetic_strategy import GeneticStrategy, GeneticConfig
 
-__all__ = ["GreedyKitStrategy", "RollingLPStrategy", "AggressiveStrategy"]
+__all__ = ["GeneticStrategy", "GeneticConfig"]
