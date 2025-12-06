@@ -1,12 +1,14 @@
-"""Simulation runner for orchestrating the 720-round simulation loop."""
+"""Simulation runner for orchestrating the 720-round simulation loop.
+
+This is a TEMPLATE/SKELETON that delegates all optimization logic to /solution.
+To change the optimization strategy, only modify files in /solution directory.
+"""
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from api_client import ExternalAPIClient, ValidationError
 from state_manager import StateManager
-from optimizer import GreedyOptimizer
 from validator import Validator
-from cost_calculator import calculate_round_costs
 from models.game_state import GameState
 from models.flight import Flight, ReferenceHour
 from models.airport import Airport
@@ -19,13 +21,18 @@ logger = logging.getLogger(__name__)
 
 
 class SimulationRunner:
-    """Orchestrates the simulation loop."""
+    """Orchestrates the simulation loop.
+    
+    This is a template class that delegates optimization decisions to /solution.
+    It handles API communication, state management, and validation, but does NOT
+    contain any optimization logic itself.
+    """
     
     def __init__(
         self,
         api_client: ExternalAPIClient,
         state_manager: StateManager,
-        optimizer: GreedyOptimizer,
+        optimizer: Any,  # Accept any optimizer from /solution
         validator: Validator,
         airports: Dict[str, Airport],
         aircraft: Dict[str, AircraftType],
@@ -38,7 +45,7 @@ class SimulationRunner:
         Args:
             api_client: External API client
             state_manager: State manager
-            optimizer: Optimizer instance
+            optimizer: Optimizer instance from /solution directory
             validator: Validator instance
             airports: Dictionary of airports
             aircraft: Dictionary of aircraft types
@@ -126,15 +133,8 @@ class SimulationRunner:
                 if validation_report.warnings:
                     logger.warning(f"Validation warnings in round {round_num}: {validation_report.warnings}")
                 
-                # Calculate estimated costs
-                cost_breakdown = calculate_round_costs(
-                    self.state_manager.state,
-                    decisions,
-                    purchases,
-                    self.airports,
-                    self.aircraft,
-                    visible_flights,
-                )
+                # Note: Cost breakdown was removed - all costs come from API response
+                # The API calculates and returns totalCost including all penalties
                 
                 # Prepare API payload - aggregate purchases into single PerClassAmount
                 total_purchases = {"FIRST": 0, "BUSINESS": 0, "PREMIUM_ECONOMY": 0, "ECONOMY": 0}
@@ -159,11 +159,12 @@ class SimulationRunner:
                     # Update state with response (this updates time to match API)
                     self._update_state_from_response(response, current_time)
                     
-                    # Get updated time from response
+                    # Extract time and cost from API response
                     response_day = response.get("day", current_time.day)
                     response_hour = response.get("hour", current_time.hour)
+                    api_total_cost = response.get("totalCost", 0.0)  # Cumulative cost from API
                     
-                    # Log round
+                    # Log round decisions
                     self.decision_log.append({
                         "round": round_num,
                         "time": {"day": response_day, "hour": response_hour},
@@ -172,35 +173,30 @@ class SimulationRunner:
                         "rationale": rationale,
                     })
                     
-                    # API returns cumulative totalCost (running total), not incremental
-                    api_total_cost = response.get("totalCost", 0.0)
-                    cumulative_total_cost = api_total_cost  # Update cumulative total
-                    
                     # Calculate incremental cost for this round (for logging)
-                    # Get previous total from state or cost_log
-                    previous_total = self.state_manager.state.total_cost if round_num == 0 else self.cost_log[-1].get("api_total_cost", 0.0) if self.cost_log else 0.0
+                    previous_total = self.state_manager.state.total_cost
                     incremental_cost = api_total_cost - previous_total
                     
+                    # Log costs
                     self.cost_log.append({
                         "round": round_num,
-                        "costs": cost_breakdown,
                         "penalties": response.get("penalties", []),
                         "api_total_cost": api_total_cost,
                         "incremental_cost": incremental_cost,
                     })
                     
-                    # Update state's total cost with API's cumulative total
+                    # Update state with API's cumulative total cost
                     self.state_manager.state.total_cost = api_total_cost
                     
-                    # Update progress via callback (call more frequently for better UI updates)
+                    # Update progress via callback
                     if progress_callback:
                         all_penalties = [item.get("penalties", []) for item in self.cost_log]
                         flat_penalties = [p for penalties in all_penalties for p in penalties]
-                        progress_callback(round_num + 1, cumulative_total_cost, flat_penalties)
+                        progress_callback(round_num + 1, api_total_cost, flat_penalties)
                         
-                        # Log progress every 10 rounds for monitoring
+                        # Log progress every 10 rounds
                         if (round_num + 1) % 10 == 0:
-                            logger.info(f"Progress: Round {round_num + 1}, Cost: ${cumulative_total_cost:.2f}")
+                            logger.info(f"Progress: Round {round_num + 1}, Cost: ${api_total_cost:.2f}")
                     
                     # Calculate next time for next round (API advances time after processing)
                     next_hour = response_hour + 1

@@ -1,7 +1,8 @@
-"""Rolling-horizon min-cost flow/MILP strategy for kit loading and purchasing.
+"""Rolling-horizon time-expanded MILP strategy for kit loading and purchasing.
 
-This strategy uses a rolling horizon optimization with linear programming to minimize
-penalties and transport costs while satisfying demand and capacity constraints.
+This strategy uses a proper time-expanded network with per-hour inventory tracking,
+respecting lead times, processing times, and all temporal constraints. Falls back
+to a simple greedy heuristic if MILP is infeasible or unavailable.
 """
 
 import logging
@@ -59,16 +60,16 @@ class RollingLPStrategy:
     def __init__(
         self,
         config: SolutionConfig,
-        horizon_hours: int = 36,
-        solver_timeout_s: int = 2
+        horizon_hours: int = 18,  # 18-hour planning horizon (optimized for speed)
+        solver_timeout_s: int = 2  # 2-second timeout for solver
     ):
         """
-        Initialize rolling LP strategy.
+        Initialize rolling LP strategy with optimized time-expanded MILP.
         
         Args:
             config: Solution configuration
-            horizon_hours: Planning horizon in hours (24-36)
-            solver_timeout_s: Timeout for solver in seconds
+            horizon_hours: Planning horizon in hours (default 18, optimized)
+            solver_timeout_s: Timeout for solver in seconds (default 2)
         """
         self.config = config
         self.horizon_hours = horizon_hours
@@ -128,9 +129,9 @@ class RollingLPStrategy:
         current_time: ReferenceHour,
         now_hours: int,
     ) -> Tuple[List[KitLoadDecision], List[KitPurchaseOrder]]:
-        """Solve using linear programming."""
+        """Solve using optimized time-expanded MILP with faster solving."""
         
-        # Build time grid
+        # Build time grid: [now, now + horizon_hours]
         horizon_end = now_hours + self.horizon_hours
         time_points = list(range(now_hours, horizon_end + 1))
         
@@ -138,30 +139,65 @@ class RollingLPStrategy:
         relevant_airports = self._get_relevant_airports(flights, now_hours, horizon_end)
         relevant_airports.add("HUB1")  # Always include hub
         
-        # Filter flights in window
+        # Filter flights: only those departing within horizon (skip departed/landed)
         horizon_flights = [
             f for f in flights
             if now_hours <= f.scheduled_departure.to_hours() <= horizon_end
+            and f.event_type in ["SCHEDULED", "CHECKED_IN"]  # Skip landed/departed flights
         ]
+        
+        # Include arrivals that become available within horizon (after processing)
+        horizon_arrivals = []
+        for f in flights:
+            if f.destination not in relevant_airports:
+                continue
+            if f.event_type not in ["SCHEDULED", "CHECKED_IN", "DEPARTED"]:
+                continue
+            
+            # Check if kits become available within horizon (arrival + processing)
+            arrival_hour = f.scheduled_arrival.to_hours()
+            dest_airport = airports.get(f.destination)
+            if dest_airport:
+                # Use max processing time across all classes as conservative estimate
+                max_proc = max(dest_airport.processing_times.get(cls, self.DEFAULT_PROCESSING_TIMES.get(cls, 2)) 
+                              for cls in self.CLASS_KEYS)
+                available_hour = arrival_hour + max_proc
+                if available_hour <= horizon_end:
+                    horizon_arrivals.append(f)
         
         if not horizon_flights:
             logger.info("No flights in horizon - no decisions needed")
             return [], []
         
-        # Create LP problem
-        prob = pulp.LpProblem("KitOptimization", pulp.LpMinimize)
+        logger.info(f"Building optimized MILP: {len(time_points)} hours, "
+                   f"{len(relevant_airports)} airports, {len(horizon_flights)} departures, "
+                   f"{len(horizon_arrivals)} arrivals")
         
-        # Variables
-        load_vars = {}  # (flight_id, class) -> var
-        purch_vars = {}  # (hour, class) -> var
-        inv_vars = {}  # (airport, hour, class) -> var
+        # Create MILP problem
+        prob = pulp.LpProblem("TimeExpandedKitFlow", pulp.LpMinimize)
         
-        # Create variables
-        slack_vars = {}  # For unmet demand penalties
+        # === DECISION VARIABLES ===
         
+        # Inventory variables: inv[airport, time, class] (continuous for speed)
+        inv_vars = {}
+        for airport_code in relevant_airports:
+            airport = airports.get(airport_code)
+            if not airport:
+                continue
+            for t in time_points:
+                for cls in self.CLASS_KEYS:
+                    storage_cap = airport.storage_capacity.get(cls, 1000)
+                    var_name = f"inv_{airport_code}_{t}_{cls}"
+                    inv_vars[(airport_code, t, cls)] = pulp.LpVariable(
+                        var_name, lowBound=0, upBound=storage_cap, cat='Continuous'
+                    )
+        
+        # Load variables: load[flight_id, class] (integer, 0 <= load <= capacity)
+        load_vars = {}
         for flight in horizon_flights:
             aircraft = aircraft_types.get(flight.aircraft_type)
             if not aircraft:
+                logger.warning(f"Aircraft type {flight.aircraft_type} not found for {flight.flight_id}")
                 continue
             
             for cls in self.CLASS_KEYS:
@@ -171,174 +207,302 @@ class RollingLPStrategy:
                     load_vars[(flight.flight_id, cls)] = pulp.LpVariable(
                         var_name, lowBound=0, upBound=capacity, cat='Integer'
                     )
-                    
-                    # Slack variable for unmet demand
-                    slack_name = f"slack_{flight.flight_id}_{cls}"
-                    slack_vars[(flight.flight_id, cls)] = pulp.LpVariable(
-                        slack_name, lowBound=0, cat='Integer'
-                    )
         
-        # Purchase variables (only at HUB1)
+        # Purchase variables: purch[time, class] (integer, >= 0, HUB1 only)
+        # Calculate realistic upper bounds based on horizon demand
+        horizon_demand = self._calculate_horizon_demand(horizon_flights)
+        
+        purch_vars = {}
+        hub1_storage = airports.get("HUB1", None)
+        
+        # Allow purchases to be placed from "now" through horizon
+        # Even if they don't arrive within horizon, they help with future demand
         for t in time_points:
             for cls in self.CLASS_KEYS:
+                # Upper bound: be generous to avoid infeasibility
+                # Use max of (3x horizon demand, 300, storage capacity)
+                storage_cap = hub1_storage.storage_capacity.get(cls, 1000) if hub1_storage else 1000
+                max_demand = horizon_demand.get(cls, 0)
+                # More generous bound: consider that purchases might not arrive in horizon
+                upper_bound = min(storage_cap, max(max_demand * 3, 300))
+                
                 var_name = f"purch_{t}_{cls}"
                 purch_vars[(t, cls)] = pulp.LpVariable(
-                    var_name, lowBound=0, cat='Integer'
+                    var_name, lowBound=0, upBound=upper_bound, cat='Integer'
                 )
         
-        # We don't need inventory variables with simplified flow balance
-        # Storage capacity is implicitly handled by not allowing over-purchase
+        # === CONSTRAINTS ===
         
-        # Flow balance constraints
-        # Simplified: for each airport/class, inventory must support all departures
+        # 1. Initial inventory at t=now
+        for airport_code in relevant_airports:
+            if airport_code not in state.airport_inventories:
+                continue
+            for cls in self.CLASS_KEYS:
+                if (airport_code, now_hours, cls) in inv_vars:
+                    initial_inv = state.airport_inventories[airport_code].get(cls, 0)
+                    
+                    # Add in-process kits that arrive exactly at now
+                    if airport_code in state.in_process_kits:
+                        for movement in state.in_process_kits[airport_code]:
+                            # Handle both object and dict formats
+                            if hasattr(movement, 'execute_time'):
+                                exec_time = movement.execute_time.to_hours()
+                            elif isinstance(movement, dict):
+                                exec_dict = movement.get('execute_time', {})
+                                exec_time = exec_dict.get('day', 0) * 24 + exec_dict.get('hour', 0)
+                            else:
+                                exec_time = 0
+                            
+                            if exec_time == now_hours:
+                                if hasattr(movement, 'kits_per_class'):
+                                    initial_inv += movement.kits_per_class.get(cls, 0)
+                                elif isinstance(movement, dict):
+                                    kits = movement.get('kits_per_class', {})
+                                    initial_inv += kits.get(cls, 0)
+                    
+                    prob += (
+                        inv_vars[(airport_code, now_hours, cls)] == initial_inv
+                    ), f"InitInv_{airport_code}_{cls}"
+        
+        # 2. Flow balance per hour: inv[a,t+1,k] = inv[a,t,k] - departures + arrivals + purchases
         for airport_code in relevant_airports:
             airport = airports.get(airport_code)
             if not airport:
                 continue
             
             for cls in self.CLASS_KEYS:
-                # Initial inventory
-                initial_inv = 0
-                if airport_code in state.airport_inventories:
-                    initial_inv = state.airport_inventories[airport_code].get(cls, 0)
-                
-                # Total departures from this airport in the horizon
-                total_departures = sum(
-                    load_vars.get((f.flight_id, cls), 0)
-                    for f in horizon_flights
-                    if f.origin == airport_code
-                )
-                
-                # Total arrivals to this airport (that finish processing in horizon)
-                total_arrivals = 0
-                for f in horizon_flights:
-                    if f.destination == airport_code:
-                        proc_time = airport.processing_times.get(cls, 
-                                    self.DEFAULT_PROCESSING_TIMES.get(cls, 2))
-                        arrival_ready = f.scheduled_arrival.to_hours() + proc_time
-                        # Count if ready within horizon
-                        if arrival_ready <= horizon_end:
-                            total_arrivals += load_vars.get((f.flight_id, cls), 0)
-                
-                # Purchases (HUB1 only)
-                total_purchases = 0
-                if airport_code == "HUB1":
-                    lead_time = self.DEFAULT_LEAD_TIMES.get(cls, 24)
-                    for t in time_points:
-                        # Purchases at time t arrive at t + lead_time
-                        if t + lead_time <= horizon_end:
-                            total_purchases += purch_vars.get((t, cls), 0)
-                
-                # Simple balance: initial + arrivals + purchases >= departures
-                prob += (
-                    initial_inv + total_arrivals + total_purchases >= total_departures
-                ), f"Balance_{airport_code}_{cls}"
+                for i in range(len(time_points) - 1):
+                    t = time_points[i]
+                    t_next = time_points[i + 1]
+                    
+                    if (airport_code, t, cls) not in inv_vars or (airport_code, t_next, cls) not in inv_vars:
+                        continue
+                    
+                    # Start with inventory at time t
+                    flow_expr = inv_vars[(airport_code, t, cls)]
+                    
+                    # Subtract loads departing at hour t from this airport
+                    for flight in horizon_flights:
+                        if flight.origin == airport_code and flight.scheduled_departure.to_hours() == t:
+                            if (flight.flight_id, cls) in load_vars:
+                                flow_expr -= load_vars[(flight.flight_id, cls)]
+                    
+                    # Add arrivals that become available at t_next (after processing)
+                    for flight in horizon_arrivals:
+                        if flight.destination == airport_code:
+                            arrival_hour = flight.scheduled_arrival.to_hours()
+                            proc_time = airport.processing_times.get(cls, 
+                                        self.DEFAULT_PROCESSING_TIMES.get(cls, 2))
+                            available_hour = arrival_hour + proc_time
+                            
+                            # Kits become available at arrival + processing time
+                            if available_hour == t_next and (flight.flight_id, cls) in load_vars:
+                                flow_expr += load_vars[(flight.flight_id, cls)]
+                    
+                    # Add purchases arriving at t_next (HUB1 only, respecting lead time)
+                    if airport_code == "HUB1":
+                        lead_time = self.DEFAULT_LEAD_TIMES.get(cls, 24)
+                        # Purchases placed at (t_next - lead_time) arrive at t_next
+                        order_time = t_next - lead_time
+                        
+                        # If order_time is within our planning horizon, include it
+                        if now_hours <= order_time < horizon_end and (order_time, cls) in purch_vars:
+                            flow_expr += purch_vars[(order_time, cls)]
+                        
+                        # Also add in-process purchases arriving at t_next
+                        if airport_code in state.in_process_kits:
+                            for movement in state.in_process_kits[airport_code]:
+                                if hasattr(movement, 'execute_time'):
+                                    exec_time = movement.execute_time.to_hours()
+                                elif isinstance(movement, dict):
+                                    exec_dict = movement.get('execute_time', {})
+                                    exec_time = exec_dict.get('day', 0) * 24 + exec_dict.get('hour', 0)
+                                else:
+                                    exec_time = 0
+                                
+                                if exec_time == t_next:
+                                    if hasattr(movement, 'kits_per_class'):
+                                        flow_expr += movement.kits_per_class.get(cls, 0)
+                                    elif isinstance(movement, dict):
+                                        kits = movement.get('kits_per_class', {})
+                                        flow_expr += kits.get(cls, 0)
+                    
+                    # Constraint: inv[t+1] = flow expression
+                    prob += (
+                        inv_vars[(airport_code, t_next, cls)] == flow_expr
+                    ), f"Flow_{airport_code}_{t}_{cls}"
         
-        # Demand coverage constraints (with slack for feasibility)
+        # 3. Demand constraints: HARD constraints, no slack
         for flight in horizon_flights:
             passengers = self._get_passenger_forecast(flight)
             
             for cls in self.CLASS_KEYS:
                 pax = passengers.get(cls, 0)
-                if pax > 0 and (flight.flight_id, cls) in load_vars:
-                    # Add small uplift for outstations (optional)
-                    if flight.origin != "HUB1":
-                        uplift = max(1, int(pax * 0.05))
-                        demand = pax + uplift
-                    else:
-                        demand = pax
-                    
-                    # Soft constraint: load + slack >= demand
-                    # Slack represents unmet demand (penalized heavily)
-                    prob += (
-                        load_vars[(flight.flight_id, cls)] + slack_vars[(flight.flight_id, cls)] >= demand
-                    ), f"Demand_{flight.flight_id}_{cls}"
+                if pax <= 0:
+                    continue
+                
+                if (flight.flight_id, cls) not in load_vars:
+                    continue
+                
+                # No buffer - exact demand coverage
+                demand = pax
+                
+                # HARD constraint: load >= demand (no slack allowed)
+                prob += (
+                    load_vars[(flight.flight_id, cls)] >= demand
+                ), f"Demand_{flight.flight_id}_{cls}"
         
-        # No storage capacity constraints needed with simplified model
-        # The balance constraints naturally limit based on available inventory
+        # 4. Aircraft capacity constraints (already handled by variable bounds)
+        # 5. Storage capacity constraints (already handled by variable bounds)
         
-        # Objective: minimize total cost
+        # === OBJECTIVE: MINIMIZE TOTAL COST ===
+        
         cost_expr = 0
         
-        # Heavy penalty for unmet demand (slack variables)
-        UNFULFILLED_PENALTY = 1000.0  # Very high to avoid unmet demand
-        for (flight_id, cls), var in slack_vars.items():
-            cost_expr += UNFULFILLED_PENALTY * var
+        # Transport costs (fuel + distance) with moderate scaling
+        for flight in horizon_flights:
+            aircraft = aircraft_types.get(flight.aircraft_type)
+            if not aircraft:
+                continue
+            
+            distance = getattr(flight, 'planned_distance', 1000)
+            fuel_cost_per_km = aircraft.fuel_cost_per_km
+            
+            for cls in self.CLASS_KEYS:
+                if (flight.flight_id, cls) not in load_vars:
+                    continue
+                
+                # Transport cost: moderate scaling to avoid huge coefficients
+                # weight * distance * fuel_cost_per_km * small_scale_factor
+                kit_weight = 10.0  # kg per kit
+                transport_cost_per_kit = kit_weight * distance * fuel_cost_per_km * 0.001
+                
+                cost_expr += transport_cost_per_kit * load_vars[(flight.flight_id, cls)]
         
         # Loading costs
-        for (flight_id, cls), var in load_vars.items():
-            flight = next((f for f in horizon_flights if f.flight_id == flight_id), None)
-            if flight and flight.origin in airports:
-                loading_cost = airports[flight.origin].loading_costs.get(cls, 1.0)
-                cost_expr += loading_cost * var
-        
-        # Purchase costs
-        for (t, cls), var in purch_vars.items():
-            cost_expr += self.KIT_COSTS[cls] * var
-        
-        # Processing costs (implicit in arrivals)
         for flight in horizon_flights:
-            if flight.destination in airports:
-                dest_airport = airports[flight.destination]
-                for cls in self.CLASS_KEYS:
-                    if (flight.flight_id, cls) in load_vars:
-                        proc_cost = dest_airport.processing_costs.get(cls, 1.0)
-                        cost_expr += proc_cost * load_vars[(flight.flight_id, cls)]
+            if flight.origin not in airports:
+                continue
+            
+            origin_airport = airports[flight.origin]
+            for cls in self.CLASS_KEYS:
+                if (flight.flight_id, cls) not in load_vars:
+                    continue
+                
+                loading_cost = origin_airport.loading_costs.get(cls, 1.0)
+                cost_expr += loading_cost * load_vars[(flight.flight_id, cls)]
+        
+        # Processing costs
+        for flight in horizon_flights:
+            if flight.destination not in airports:
+                continue
+            
+            dest_airport = airports[flight.destination]
+            for cls in self.CLASS_KEYS:
+                if (flight.flight_id, cls) not in load_vars:
+                    continue
+                
+                proc_cost = dest_airport.processing_costs.get(cls, 1.0)
+                cost_expr += proc_cost * load_vars[(flight.flight_id, cls)]
+        
+        # Purchasing costs - scale down to encourage purchases when needed
+        # Add small time preference to encourage earlier purchases
+        PURCHASE_COST_SCALE = 0.5  # Reduce purchase cost impact
+        TIME_DELAY_COST = 0.01  # Small cost for delaying purchases
+        
+        for (t, cls), var in purch_vars.items():
+            kit_cost = self.KIT_COSTS.get(cls, 10.0) * PURCHASE_COST_SCALE
+            # Add small penalty for purchasing later (encourages purchasing "now")
+            time_penalty = (t - now_hours) * TIME_DELAY_COST
+            cost_expr += (kit_cost + time_penalty) * var
+        
+        # Very small inventory holding cost to prevent excess without discouraging safety stock
+        HOLDING_COST = 0.001
+        for (airport_code, t, cls), var in inv_vars.items():
+            cost_expr += HOLDING_COST * var
         
         prob += cost_expr, "TotalCost"
         
-        # Solve
-        solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=self.solver_timeout_s)
+        # === SOLVE ===
+        
+        solver = pulp.PULP_CBC_CMD(
+            msg=0,
+            timeLimit=self.solver_timeout_s,
+            threads=2,
+            options=['presolve on', 'cuts on', 'heuristics on']
+        )
+        
+        logger.info(f"Solving MILP with timeout={self.solver_timeout_s}s...")
         status = prob.solve(solver)
         
-        logger.info(f"LP solver status: {pulp.LpStatus[status]}, objective={pulp.value(prob.objective) if status == pulp.LpStatusOptimal else 'N/A'}")
+        status_name = pulp.LpStatus[status]
+        obj_value = pulp.value(prob.objective) if status == pulp.LpStatusOptimal else None
         
+        # Log total purchases across all time points for debugging
+        total_purchases = {cls: 0 for cls in self.CLASS_KEYS}
+        if status == pulp.LpStatusOptimal:
+            for (t, cls), var in purch_vars.items():
+                qty = int(pulp.value(var) or 0)
+                total_purchases[cls] += qty
+        
+        logger.info(f"MILP status: {status_name}, objective={obj_value}, "
+                   f"total_purchases={total_purchases}")
+        
+        # Discard LP results if not optimal/feasible
         if status != pulp.LpStatusOptimal:
-            logger.warning(f"LP solver status: {pulp.LpStatus[status]}")
-            raise Exception(f"LP not optimal: {pulp.LpStatus[status]}")
+            logger.warning(f"MILP not optimal: {status_name} - falling back to heuristic")
+            raise Exception(f"MILP solver failed: {status_name}")
         
-        logger.info(f"LP solver: optimal solution found, cost={pulp.value(prob.objective):.2f}")
+        # === EXTRACT DECISIONS ===
         
-        # Log slack usage (unmet demand)
-        total_slack = sum(pulp.value(var) or 0 for var in slack_vars.values())
-        if total_slack > 0:
-            logger.warning(f"Unmet demand (slack): {total_slack:.0f} kits total")
-        
-        # Extract decisions for current hour only
+        # Extract load decisions: only for flights departing NOW
         loads = []
         for flight in horizon_flights:
-            if flight.scheduled_departure.to_hours() == now_hours:
-                kits = {}
-                for cls in self.CLASS_KEYS:
-                    if (flight.flight_id, cls) in load_vars:
-                        qty = int(pulp.value(load_vars[(flight.flight_id, cls)]) or 0)
-                        if qty > 0:
-                            kits[cls] = qty
-                        
-                        # Log slack if any
-                        slack = pulp.value(slack_vars.get((flight.flight_id, cls), 0)) or 0
-                        if slack > 0:
-                            logger.warning(f"  Flight {flight.flight_id} {cls}: loaded={qty}, slack={slack:.0f}")
-                
-                if kits:
-                    loads.append(KitLoadDecision(
-                        flight_id=flight.flight_id,
-                        kits_per_class=kits
-                    ))
+            if flight.scheduled_departure.to_hours() != now_hours:
+                continue
+            
+            kits = {}
+            for cls in self.CLASS_KEYS:
+                if (flight.flight_id, cls) in load_vars:
+                    qty = int(pulp.value(load_vars[(flight.flight_id, cls)]) or 0)
+                    if qty > 0:
+                        kits[cls] = qty
+            
+            if kits:
+                loads.append(KitLoadDecision(
+                    flight_id=flight.flight_id,
+                    kits_per_class=kits
+                ))
         
-        # Extract purchase decisions for current hour
+        # Extract purchase decisions: only for orders placed NOW
         purchases = []
         kits_to_purchase = {}
+        
+        # Log all non-zero purchases for debugging
+        all_purchases = {}
+        for (t, cls), var in purch_vars.items():
+            qty = int(pulp.value(var) or 0)
+            if qty > 0:
+                if t not in all_purchases:
+                    all_purchases[t] = {}
+                all_purchases[t][cls] = qty
+        
+        if all_purchases:
+            logger.info(f"MILP purchases by time: {all_purchases}")
+        
         for cls in self.CLASS_KEYS:
             if (now_hours, cls) in purch_vars:
                 qty = int(pulp.value(purch_vars[(now_hours, cls)]) or 0)
-                if qty >= 3:  # Minimum batch size
+                if qty > 0:
                     kits_to_purchase[cls] = qty
         
         if kits_to_purchase:
-            # Calculate delivery time
-            lead_time = max(self.DEFAULT_LEAD_TIMES.get(cls, 24) for cls in kits_to_purchase.keys())
-            delivery_hours = now_hours + lead_time
+            # Calculate delivery time based on lead times
+            max_lead_time = max(
+                self.DEFAULT_LEAD_TIMES.get(cls, 24)
+                for cls in kits_to_purchase.keys()
+            )
+            delivery_hours = now_hours + max_lead_time
             delivery_time = ReferenceHour(
                 day=delivery_hours // 24,
                 hour=delivery_hours % 24
@@ -349,6 +513,13 @@ class RollingLPStrategy:
                 order_time=current_time,
                 expected_delivery=delivery_time
             ))
+            
+            logger.info(
+                f"MILP purchase order: {kits_to_purchase}, "
+                f"delivery at {delivery_time.day}d{delivery_time.hour}h"
+            )
+        else:
+            logger.info("MILP: No purchases needed")
         
         return loads, purchases
     
@@ -361,11 +532,20 @@ class RollingLPStrategy:
         current_time: ReferenceHour,
         now_hours: int,
     ) -> Tuple[List[KitLoadDecision], List[KitPurchaseOrder]]:
-        """Fallback heuristic when solver not available or fails."""
+        """
+        Fallback greedy heuristic when MILP solver fails or unavailable.
+        
+        Simple strategy:
+        - Load demand with minimal buffer
+        - Purchase to maintain safety stock
+        - Do NOT assume future purchases are available now
+        """
+        
+        logger.info("Using fallback heuristic")
         
         loads = []
         
-        # Load flights departing now
+        # Load flights departing NOW only
         for flight in flights:
             if flight.scheduled_departure.to_hours() != now_hours:
                 continue
@@ -378,9 +558,7 @@ class RollingLPStrategy:
                 continue
             
             passengers = self._get_passenger_forecast(flight)
-            inventory = state.airport_inventories[flight.origin].copy()
-            is_hub = (flight.origin == "HUB1")
-            is_outstation = not is_hub
+            available_inv = state.airport_inventories[flight.origin].copy()
             
             kits_to_load = {}
             
@@ -389,34 +567,16 @@ class RollingLPStrategy:
                 if pax <= 0:
                     continue
                 
-                # Calculate buffer
-                if is_hub:
-                    buffer = 0  # No buffer at hub
-                else:
-                    # Outstation: 5% or 1-2 kits
-                    buffer = min(2, max(1, int(pax * 0.05)))
-                
-                needed = pax + buffer
-                
-                # Pre-positioning for return flights (if this is HUB to outstation)
-                preposition = 0
-                if is_hub and flight.destination != "HUB1":
-                    # Estimate return demand (simplified)
-                    dest_inv = state.airport_inventories.get(flight.destination, {}).get(cls, 0)
-                    if dest_inv < pax:
-                        preposition = max(0, pax - dest_inv)
-                        preposition = min(preposition, 5)  # Cap at 5
-                
-                total_needed = needed + preposition
+                # Minimal uplift: just cover passengers
+                needed = pax
                 capacity = aircraft.kit_capacity.get(cls, 0)
-                available = inventory.get(cls, 0)
+                available = available_inv.get(cls, 0)
                 
-                # Load what we can
-                to_load = min(total_needed, capacity, available)
+                # Load what we can (cannot exceed available inventory or capacity)
+                to_load = min(needed, capacity, available)
                 
                 if to_load > 0:
                     kits_to_load[cls] = to_load
-                    inventory[cls] = available - to_load
             
             if kits_to_load:
                 loads.append(KitLoadDecision(
@@ -426,7 +586,7 @@ class RollingLPStrategy:
         
         # Purchase decisions at HUB1
         purchases = []
-        horizon_end = now_hours + min(36, self.horizon_hours)
+        horizon_end = now_hours + self.horizon_hours
         
         # Calculate demand in horizon for HUB departures
         horizon_demand = defaultdict(int)
@@ -437,7 +597,7 @@ class RollingLPStrategy:
                 for cls, pax in passengers.items():
                     horizon_demand[cls] += pax
         
-        # Purchase if needed
+        # Purchase if stock + confirmed_in_transit < horizon_demand * 1.1
         kits_to_purchase = {}
         hub_inv = state.airport_inventories.get("HUB1", {})
         
@@ -445,10 +605,21 @@ class RollingLPStrategy:
             current_stock = hub_inv.get(cls, 0)
             demand = horizon_demand[cls]
             
-            # Order if below 105% of demand
-            if current_stock < demand * 1.05:
-                target = int(demand * 1.1)
-                needed = max(0, target - current_stock)
+            # Calculate in-transit (only confirmed arrivals, not future purchases)
+            in_transit = 0
+            if "HUB1" in state.in_process_kits:
+                for movement in state.in_process_kits["HUB1"]:
+                    if hasattr(movement, 'kits_per_class'):
+                        in_transit += movement.kits_per_class.get(cls, 0)
+                    elif isinstance(movement, dict):
+                        in_transit += movement.get('kits_per_class', {}).get(cls, 0)
+            
+            total_available = current_stock + in_transit
+            
+            # Order if below safety threshold
+            if total_available < demand * 1.1:
+                target = int(demand * 1.2)
+                needed = max(0, target - total_available)
                 
                 # Batch to at least 5 kits
                 if needed > 0:
@@ -456,9 +627,9 @@ class RollingLPStrategy:
                     kits_to_purchase[cls] = needed
         
         if kits_to_purchase:
-            # Use longest lead time for safety
-            lead_time = max(self.DEFAULT_LEAD_TIMES.get(cls, 24) for cls in kits_to_purchase.keys())
-            delivery_hours = now_hours + lead_time
+            # Use default lead time (24h as safe default)
+            default_lead_time = 24
+            delivery_hours = now_hours + default_lead_time
             delivery_time = ReferenceHour(
                 day=delivery_hours // 24,
                 hour=delivery_hours % 24
@@ -469,6 +640,11 @@ class RollingLPStrategy:
                 order_time=current_time,
                 expected_delivery=delivery_time
             ))
+            
+            logger.info(
+                f"Heuristic purchase: {kits_to_purchase}, "
+                f"delivery at {delivery_time.day}d{delivery_time.hour}h"
+            )
         
         return loads, purchases
     
@@ -487,15 +663,18 @@ class RollingLPStrategy:
                 airports.add(flight.destination)
         return airports
     
+    def _calculate_horizon_demand(self, flights: List[Flight]) -> Dict[str, int]:
+        """Calculate total demand across all horizon flights per class."""
+        demand = {cls: 0 for cls in self.CLASS_KEYS}
+        for flight in flights:
+            passengers = self._get_passenger_forecast(flight)
+            for cls in self.CLASS_KEYS:
+                demand[cls] += passengers.get(cls, 0)
+        return demand
+    
     def _get_passenger_forecast(self, flight: Flight) -> Dict[str, int]:
-        """Get passenger forecast for a flight."""
-        # Use actual passengers if available, otherwise planned
+        """Get passenger forecast for a flight - use actual if available, else planned."""
+        # Use actual passengers if available (for checked-in flights), otherwise planned
         if flight.actual_passengers:
             return flight.actual_passengers.copy()
         return flight.planned_passengers.copy()
-
-
-# Backwards compatibility aliases
-GreedyKitStrategy = RollingLPStrategy
-OptimalKitStrategy = RollingLPStrategy
-PenaltyAwareStrategy = RollingLPStrategy

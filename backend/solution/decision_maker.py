@@ -35,11 +35,11 @@ class DecisionMaker:
         self.config = config
         self.strategy = RollingLPStrategy(
             config=config,
-            horizon_hours=36,
-            solver_timeout_s=2
+            horizon_hours=18,  # 18-hour rolling horizon for optimal speed
+            solver_timeout_s=2  # 2-second timeout for MILP solver
         )
         
-        logger.info("DecisionMaker initialized with RollingLPStrategy")
+        logger.info("DecisionMaker initialized with RollingLPStrategy (MILP 18h horizon)")
     
     def make_decisions(
         self,
@@ -88,7 +88,7 @@ class DecisionMaker:
         self.config = new_config
         self.strategy = RollingLPStrategy(
             config=new_config,
-            horizon_hours=36,
-            solver_timeout_s=2
+            horizon_hours=48,
+            solver_timeout_s=5
         )
         logger.info("Configuration updated, strategy recreated")
