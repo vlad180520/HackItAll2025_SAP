@@ -26,12 +26,17 @@ export const getInventory = async (): Promise<InventoryResponse> => {
   return response.data;
 };
 
-export const getHistory = async (): Promise<HistoryResponse> => {
-  const response = await api.get<HistoryResponse>('/history');
+export const getHistory = async (limit?: number): Promise<HistoryResponse> => {
+  const params = limit !== undefined ? { limit } : {};
+  const response = await api.get<HistoryResponse>('/history', { params });
   return response.data;
 };
 
 export const startSimulation = async (apiKey: string): Promise<void> => {
   await api.post('/start', { api_key: apiKey });
+};
+
+export const stopSimulation = async (): Promise<void> => {
+  await api.post('/stop');
 };
 

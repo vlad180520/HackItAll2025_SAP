@@ -2,10 +2,10 @@
 
 import logging
 from typing import Dict, List, Tuple, Optional
-from .models.game_state import GameState, KitMovement
-from .models.flight import Flight, ReferenceHour
-from .models.kit import KitLoadDecision, KitPurchaseOrder
-from .models.airport import Airport
+from models.game_state import GameState, KitMovement
+from models.flight import Flight, ReferenceHour
+from models.kit import KitLoadDecision, KitPurchaseOrder
+from models.airport import Airport
 
 logger = logging.getLogger(__name__)
 

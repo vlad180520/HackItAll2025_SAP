@@ -1,6 +1,6 @@
 """Services package for business logic."""
 
-from .simulation_service import SimulationService
+from services.simulation_service import SimulationService
 
 __all__ = ["SimulationService"]
 

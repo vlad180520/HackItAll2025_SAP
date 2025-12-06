@@ -2,12 +2,12 @@
 
 import logging
 from typing import Dict, List, Tuple
-from .models.game_state import GameState
-from .models.flight import Flight, ReferenceHour
-from .models.kit import KitLoadDecision, KitPurchaseOrder
-from .models.airport import Airport
-from .models.aircraft import AircraftType
-from .config import Config
+from models.game_state import GameState
+from models.flight import Flight, ReferenceHour
+from models.kit import KitLoadDecision, KitPurchaseOrder
+from models.airport import Airport
+from models.aircraft import AircraftType
+from config import Config
 
 logger = logging.getLogger(__name__)
 

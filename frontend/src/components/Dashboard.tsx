@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { getStatus, getInventory, getHistory, startSimulation } from '../services/api';
+import { getStatus, getInventory, getHistory, startSimulation, stopSimulation } from '../services/api';
 import type { StatusResponse, InventoryResponse, HistoryResponse } from '../types/types';
 import FlightTable from './FlightTable';
 import InventoryChart from './InventoryChart';
 import CostBreakdown from './CostBreakdown';
 import PenaltyLog from './PenaltyLog';
+import RoundCostTable from './RoundCostTable';
 import './Dashboard.css';
 
 interface DashboardProps {
@@ -17,16 +18,18 @@ function Dashboard({ apiKey }: DashboardProps) {
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'monitoring' | 'costs' | 'inventory' | 'penalties'>('monitoring');
+  const [activeTab, setActiveTab] = useState<'monitoring' | 'costs' | 'inventory' | 'penalties' | 'roundCosts'>('monitoring');
+  const [showAllRounds, setShowAllRounds] = useState(false);
 
   // Poll for updates every 2 seconds
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const limit = showAllRounds ? 0 : 20; // 0 means fetch all
         const [statusData, inventoryData, historyData] = await Promise.all([
           getStatus(),
           getInventory(),
-          getHistory(),
+          getHistory(limit),
         ]);
         setStatus(statusData);
         setInventory(inventoryData);
@@ -41,7 +44,7 @@ function Dashboard({ apiKey }: DashboardProps) {
     const interval = setInterval(fetchData, 2000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [showAllRounds]);
 
   const handleStartSimulation = async () => {
     if (!apiKey) {
@@ -61,21 +64,47 @@ function Dashboard({ apiKey }: DashboardProps) {
     }
   };
 
+  const handleStopSimulation = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await stopSimulation();
+      setStatus(prev => prev ? { ...prev, status: 'stopped' } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to stop simulation');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="dashboard">
       <div className="dashboard-header">
         <div className="status-info">
-          <h2>Status: {status?.status || 'Unknown'}</h2>
-          <p>Round: {status?.round || 0}</p>
+          <h2>Status: {status?.status || 'not_started'}</h2>
+          <p>Round: {status?.round || 0} / 720</p>
           <p>Total Cost: ${typeof status?.costs === 'number' ? status.costs.toFixed(2) : '0.00'}</p>
+          {status?.status === 'running' && (
+            <p style={{ color: '#4CAF50', fontWeight: 'bold' }}>● Simulation Running...</p>
+          )}
         </div>
-        <button
-          onClick={handleStartSimulation}
-          disabled={loading || status?.status === 'running'}
-          className="start-button"
-        >
-          {loading ? 'Starting...' : 'Start Simulation'}
-        </button>
+        {status?.status === 'running' ? (
+          <button
+            onClick={handleStopSimulation}
+            disabled={loading}
+            className="start-button stop-button"
+          >
+            {loading ? 'Stopping...' : 'Stop Simulation'}
+          </button>
+        ) : (
+          <button
+            onClick={handleStartSimulation}
+            disabled={loading}
+            className="start-button"
+          >
+            {loading ? 'Starting...' : 'Start Simulation'}
+          </button>
+        )}
       </div>
 
       {error && <div className="error-message">{error}</div>}
@@ -88,10 +117,16 @@ function Dashboard({ apiKey }: DashboardProps) {
           Monitoring
         </button>
         <button
+          className={activeTab === 'roundCosts' ? 'active' : ''}
+          onClick={() => setActiveTab('roundCosts')}
+        >
+          Round Costs
+        </button>
+        <button
           className={activeTab === 'costs' ? 'active' : ''}
           onClick={() => setActiveTab('costs')}
         >
-          Costs
+          Cost Breakdown
         </button>
         <button
           className={activeTab === 'inventory' ? 'active' : ''}
@@ -111,6 +146,20 @@ function Dashboard({ apiKey }: DashboardProps) {
         {activeTab === 'monitoring' && (
           <div>
             <FlightTable history={history} />
+          </div>
+        )}
+        {activeTab === 'roundCosts' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0 }}>Round Costs</h3>
+              <button
+                onClick={() => setShowAllRounds(!showAllRounds)}
+                className="view-all-button"
+              >
+                {showAllRounds ? 'Show Last 20' : 'View All Rounds'}
+              </button>
+            </div>
+            <RoundCostTable history={history} showAll={showAllRounds} />
           </div>
         )}
         {activeTab === 'costs' && (

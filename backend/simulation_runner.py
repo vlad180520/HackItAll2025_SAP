@@ -2,18 +2,18 @@
 
 import logging
 from typing import Dict, List, Optional
-from .api_client import ExternalAPIClient, ValidationError
-from .state_manager import StateManager
-from .optimizer import GreedyOptimizer
-from .validator import Validator
-from .cost_calculator import calculate_round_costs
-from .models.game_state import GameState
-from .models.flight import Flight, ReferenceHour
-from .models.airport import Airport
-from .models.aircraft import AircraftType
-from .models.kit import KitLoadDecision, KitPurchaseOrder
-from .models.game_state import PenaltyRecord
-from .config import Config, TOTAL_ROUNDS
+from api_client import ExternalAPIClient, ValidationError
+from state_manager import StateManager
+from optimizer import GreedyOptimizer
+from validator import Validator
+from cost_calculator import calculate_round_costs
+from models.game_state import GameState
+from models.flight import Flight, ReferenceHour
+from models.airport import Airport
+from models.aircraft import AircraftType
+from models.kit import KitLoadDecision, KitPurchaseOrder
+from models.game_state import PenaltyRecord
+from config import Config, TOTAL_ROUNDS
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class SimulationRunner:
         self.decision_log = []
         self.cost_log = []
     
-    def run(self, api_key: str, max_rounds: int = TOTAL_ROUNDS, stop_existing: bool = True) -> Dict:
+    def run(self, api_key: str, max_rounds: int = TOTAL_ROUNDS, stop_existing: bool = True, progress_callback=None) -> Dict:
         """
         Run the main simulation loop.
         
@@ -64,6 +64,7 @@ class SimulationRunner:
             api_key: API key for authentication
             max_rounds: Maximum number of rounds to run
             stop_existing: If True, stop any existing session first (default: True)
+            progress_callback: Optional callback function(round, cost, penalties) for progress updates
             
         Returns:
             Final report dictionary
@@ -179,6 +180,16 @@ class SimulationRunner:
                     # Update state's total cost with API's cumulative total
                     self.state_manager.state.total_cost = api_total_cost
                     
+                    # Update progress via callback (call more frequently for better UI updates)
+                    if progress_callback:
+                        all_penalties = [item.get("penalties", []) for item in self.cost_log]
+                        flat_penalties = [p for penalties in all_penalties for p in penalties]
+                        progress_callback(round_num + 1, cumulative_total_cost, flat_penalties)
+                        
+                        # Log progress every 10 rounds for monitoring
+                        if (round_num + 1) % 10 == 0:
+                            logger.info(f"Progress: Round {round_num + 1}, Cost: ${cumulative_total_cost:.2f}")
+                    
                     # Calculate next time for next round (API advances time after processing)
                     next_hour = response_hour + 1
                     next_day = response_day
@@ -204,7 +215,7 @@ class SimulationRunner:
         finally:
             # Stop session
             try:
-                final_report = self.api_client.stop_session(api_key)
+                final_report = self.api_client.stop_session(api_key, session_id=session_id)
                 logger.info("Session stopped")
             except Exception as e:
                 logger.error(f"Error stopping session: {e}")

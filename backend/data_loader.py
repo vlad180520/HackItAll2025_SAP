@@ -6,9 +6,9 @@ from typing import Dict
 from pathlib import Path
 import os
 
-from .models.airport import Airport
-from .models.aircraft import AircraftType
-from .config import Config, CLASS_TYPES
+from models.airport import Airport
+from models.aircraft import AircraftType
+from config import Config, CLASS_TYPES
 
 logger = logging.getLogger(__name__)
 

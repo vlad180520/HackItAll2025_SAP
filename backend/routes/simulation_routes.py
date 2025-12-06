@@ -2,8 +2,8 @@
 
 import logging
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from ..schemas.simulation_schemas import StartSimulationRequest, SimulationStatusResponse
-from ..services.singleton import get_simulation_service
+from schemas.simulation_schemas import StartSimulationRequest, SimulationStatusResponse
+from services.singleton import get_simulation_service
 
 logger = logging.getLogger(__name__)
 

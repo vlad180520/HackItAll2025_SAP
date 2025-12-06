@@ -237,7 +237,7 @@ class ExternalAPIClient:
         logger.info(f"Stopping session for API key {api_key[:8]}...")
         # Note: The API endpoint /api/v1/session/end only needs API-KEY header
         # It finds the session by API key automatically
-        response = self._make_request("POST", "/api/v1/session/end", api_key)
+        response = self._make_request("POST", "/api/v1/session/end", api_key, session_id=session_id)
         return response
     
     def stop_existing_session(self, api_key: str) -> bool:

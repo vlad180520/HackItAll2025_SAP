@@ -2,16 +2,16 @@
 
 import logging
 from typing import Dict, Optional
-from ..config import Config
-from ..api_client import ValidationError
-from ..data_loader import load_airports, load_aircraft_types
-from ..api_client import ExternalAPIClient
-from ..state_manager import StateManager
-from ..optimizer import GreedyOptimizer
-from ..validator import Validator
-from ..simulation_runner import SimulationRunner
-from ..models.game_state import GameState
-from ..config import KIT_DEFINITIONS, AIRPORTS_CSV, AIRCRAFT_TYPES_CSV
+from config import Config
+from api_client import ValidationError
+from data_loader import load_airports, load_aircraft_types, load_flight_schedule
+from api_client import ExternalAPIClient
+from state_manager import StateManager
+from optimizer import GreedyOptimizer
+from validator import Validator
+from simulation_runner import SimulationRunner
+from models.game_state import GameState
+from config import KIT_DEFINITIONS, AIRPORTS_CSV, AIRCRAFT_TYPES_CSV, FLIGHT_PLAN_CSV
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class SimulationService:
         self.config = Config()
         self.simulation_state: Optional[Dict] = None
         self.simulation_runner: Optional[SimulationRunner] = None
+        self.current_session_id: Optional[str] = None
     
     def initialize_simulation(self) -> SimulationRunner:
         """
@@ -142,19 +143,31 @@ class SimulationService:
         # No simulation started
         return {"inventories": {}}
     
-    def get_history(self) -> Dict:
+    def get_history(self, limit: Optional[int] = 20) -> Dict:
         """
         Get decision and cost history.
         
+        Args:
+            limit: Number of recent entries to return (None for all)
+        
         Returns:
-            History dictionary
+            History dictionary with decision_log and cost_log
         """
         if self.simulation_runner is None:
-            return {"decision_log": [], "cost_log": []}
+            return {"decision_log": [], "cost_log": [], "total_rounds": 0}
+        
+        decision_log = self.simulation_runner.decision_log
+        cost_log = self.simulation_runner.cost_log
+        
+        # Apply limit if specified
+        if limit is not None:
+            decision_log = decision_log[-limit:]
+            cost_log = cost_log[-limit:]
         
         return {
-            "decision_log": self.simulation_runner.decision_log,
-            "cost_log": self.simulation_runner.cost_log,
+            "decision_log": decision_log,
+            "cost_log": cost_log,
+            "total_rounds": len(self.simulation_runner.decision_log),
         }
     
     def start_simulation(self, api_key: str, stop_existing: bool = True) -> None:
@@ -183,18 +196,43 @@ class SimulationService:
         """
         try:
             logger.info("Starting simulation task")
-            # Pass stop_existing flag to runner's API client
-            # The API client will handle stopping existing sessions if needed
-            final_report = self.simulation_runner.run(api_key=api_key, stop_existing=self.stop_existing)
+            
+            # Initialize simulation state
+            self.simulation_state = {
+                "status": "running",
+                "rounds_completed": 0,
+                "total_cost": 0.0,
+                "penalty_log": [],
+            }
+            
+            # Pass stop_existing flag and update callback to runner
+            def update_progress(round_num: int, total_cost: float, penalties: list):
+                """Callback to update state during simulation."""
+                logger.info(f"Progress update: Round {round_num}, Cost {total_cost:.2f}")
+                if self.simulation_state:
+                    self.simulation_state["rounds_completed"] = round_num
+                    self.simulation_state["total_cost"] = total_cost
+                    self.simulation_state["penalty_log"] = penalties[-10:]  # Keep last 10
+                    logger.debug(f"State updated: {self.simulation_state['rounds_completed']} rounds, ${self.simulation_state['total_cost']:.2f}")
+            
+            final_report = self.simulation_runner.run(
+                api_key=api_key, 
+                stop_existing=self.stop_existing,
+                progress_callback=update_progress
+            )
+            # Store session_id from final report
+            if 'session_id' in final_report:
+                self.current_session_id = final_report['session_id']
             self.simulation_state = final_report
             logger.info("Simulation task completed")
         except Exception as e:
             logger.error(f"Error in simulation task: {e}")
-            self.simulation_state = {"error": str(e)}
+            self.simulation_state = {"error": str(e), "status": "error"}
         finally:
             # Clear runner after completion
             self.simulation_runner = None
             self.current_api_key = None
+            self.current_session_id = None
     
     def stop_simulation(self) -> Dict:
         """
@@ -212,11 +250,13 @@ class SimulationService:
         try:
             # Stop session on evaluation platform
             api_client = self.simulation_runner.api_client
-            final_report = api_client.stop_session(self.current_api_key)
+            session_id = getattr(self, 'current_session_id', None)
+            final_report = api_client.stop_session(self.current_api_key, session_id=session_id)
             
             # Clear state
             self.simulation_runner = None
             self.current_api_key = None
+            self.current_session_id = None
             
             return final_report
         except Exception as e:

@@ -24,4 +24,5 @@ class HistoryResponse(BaseModel):
     
     decision_log: List[Dict[str, Any]]
     cost_log: List[Dict[str, Any]]
+    total_rounds: int
 

@@ -99,6 +99,8 @@ export interface HistoryResponse {
     round: number;
     costs: Record<string, number>;
     penalties: PenaltyRecord[];
+    api_total_cost?: number;
   }>;
+  total_rounds: number;
 }
 

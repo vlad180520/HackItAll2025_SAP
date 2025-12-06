@@ -2,6 +2,7 @@
   padding: 20px;
   max-width: 1400px;
   margin: 0 auto;
+  color: #213547;
 }
 
 .dashboard-header {
@@ -43,6 +44,14 @@
 .start-button:disabled {
   background-color: #cccccc;
   cursor: not-allowed;
+}
+
+.stop-button {
+  background-color: #f44336;
+}
+
+.stop-button:hover:not(:disabled) {
+  background-color: #da190b;
 }
 
 .error-message {
@@ -88,5 +97,21 @@
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   min-height: 400px;
+  color: #213547;
+}
+
+.view-all-button {
+  padding: 8px 16px;
+  font-size: 0.875rem;
+  background-color: #646cff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.view-all-button:hover {
+  background-color: #535bf2;
 }
 

@@ -1,6 +1,6 @@
 """Singleton pattern for shared service instances."""
 
-from .simulation_service import SimulationService
+from services.simulation_service import SimulationService
 
 # Global service instance (singleton pattern)
 _simulation_service: SimulationService = None

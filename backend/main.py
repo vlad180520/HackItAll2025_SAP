@@ -4,8 +4,8 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .logger import configure_logging
-from .routes import simulation_router, status_router, logs_router
+from logger import configure_logging
+from routes import simulation_router, status_router, logs_router
 
 # Configure logging
 configure_logging()
@@ -41,6 +41,7 @@ app.include_router(logs_router)
 
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    logger.info("Starting FastAPI application...")
+    logger.info("Run with: python -m fastapi dev main.py")
+    logger.info("Or use: python -m fastapi run main.py")
 

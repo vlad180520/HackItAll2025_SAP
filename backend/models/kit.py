@@ -2,7 +2,7 @@
 
 from typing import Dict
 from pydantic import BaseModel
-from .flight import ReferenceHour
+from models.flight import ReferenceHour
 
 
 class KitType(BaseModel):

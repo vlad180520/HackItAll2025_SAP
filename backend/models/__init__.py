@@ -1,10 +1,10 @@
 """Backend models package."""
 
-from .airport import Airport
-from .aircraft import AircraftType
-from .flight import Flight, ReferenceHour
-from .kit import KitType, KitLoadDecision, KitPurchaseOrder
-from .game_state import GameState, KitMovement, PenaltyRecord
+from models.airport import Airport
+from models.aircraft import AircraftType
+from models.flight import Flight, ReferenceHour
+from models.kit import KitType, KitLoadDecision, KitPurchaseOrder
+from models.game_state import GameState, KitMovement, PenaltyRecord
 
 __all__ = [
     "Airport",

@@ -3,11 +3,11 @@
 import logging
 from typing import Dict, List
 from pydantic import BaseModel
-from .models.kit import KitLoadDecision, KitPurchaseOrder
-from .models.game_state import GameState
-from .models.flight import Flight
-from .models.airport import Airport
-from .models.aircraft import AircraftType
+from models.kit import KitLoadDecision, KitPurchaseOrder
+from models.game_state import GameState
+from models.flight import Flight
+from models.airport import Airport
+from models.aircraft import AircraftType
 
 logger = logging.getLogger(__name__)
 
