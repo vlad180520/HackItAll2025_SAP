@@ -4,14 +4,14 @@ import logging
 from typing import Dict, Optional
 from ..config import Config
 from ..api_client import ValidationError
-from ..data_loader import load_airports, load_aircraft_types, load_flight_schedule
+from ..data_loader import load_airports, load_aircraft_types
 from ..api_client import ExternalAPIClient
 from ..state_manager import StateManager
 from ..optimizer import GreedyOptimizer
 from ..validator import Validator
 from ..simulation_runner import SimulationRunner
 from ..models.game_state import GameState
-from ..config import KIT_DEFINITIONS, AIRPORTS_CSV, AIRCRAFT_TYPES_CSV, FLIGHT_PLAN_CSV
+from ..config import KIT_DEFINITIONS, AIRPORTS_CSV, AIRCRAFT_TYPES_CSV
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,8 @@ class SimulationService:
         # Load data
         airports = load_airports(AIRPORTS_CSV, self.config)
         aircraft = load_aircraft_types(AIRCRAFT_TYPES_CSV)
-        flight_templates = load_flight_schedule(FLIGHT_PLAN_CSV)
+        # Note: Flights are provided by the evaluation platform via API responses,
+        # not loaded from CSV. The flight_plan.csv is just a schedule template.
         
         # Initialize initial game state
         initial_inventories = {}
@@ -82,19 +83,42 @@ class SimulationService:
         Returns:
             Status dictionary
         """
-        if self.simulation_state is None:
+        # If simulation is running, get live data from runner
+        if self.simulation_runner is not None:
+            state = self.simulation_runner.state_manager.current_state
+            # Count rounds from decision log
+            rounds = len(self.simulation_runner.decision_log)
             return {
-                "status": "not_started",
-                "round": 0,
-                "costs": 0.0,
-                "penalties": [],
+                "status": "running",
+                "round": rounds,
+                "costs": state.total_cost,  # Get from current state
+                "penalties": [p.dict() for p in state.penalty_log[-10:]],  # Last 10 penalties
             }
         
+        # If simulation completed, get from final report
+        if self.simulation_state is not None:
+            penalty_log = self.simulation_state.get("penalty_log", [])
+            # Convert PenaltyRecord objects to dicts if needed
+            if penalty_log and hasattr(penalty_log[0], 'dict'):
+                penalty_log = [p.dict() for p in penalty_log]
+            elif penalty_log and isinstance(penalty_log[0], dict):
+                pass  # Already dicts
+            else:
+                penalty_log = []
+            
+            return {
+                "status": "completed",
+                "round": self.simulation_state.get("rounds_completed", 0),
+                "costs": self.simulation_state.get("total_cost", 0.0),
+                "penalties": penalty_log[-10:],  # Last 10 penalties
+            }
+        
+        # No simulation started
         return {
-            "status": "running" if self.simulation_runner else "completed",
-            "round": self.simulation_state.get("rounds_completed", 0),
-            "costs": self.simulation_state.get("total_cost", 0.0),
-            "penalties": self.simulation_state.get("penalty_log", [])[-10:],  # Last 10 penalties
+            "status": "not_started",
+            "round": 0,
+            "costs": 0.0,
+            "penalties": [],
         }
     
     def get_inventory(self) -> Dict:
@@ -104,11 +128,19 @@ class SimulationService:
         Returns:
             Inventory dictionary
         """
-        if self.simulation_runner is None:
-            return {"inventories": {}}
+        # If simulation is running, get live data from runner
+        if self.simulation_runner is not None:
+            state = self.simulation_runner.state_manager.current_state
+            return {"inventories": state.airport_inventories}
         
-        state = self.simulation_runner.state_manager.current_state
-        return {"inventories": state.airport_inventories}
+        # If simulation completed, get from final state
+        if self.simulation_state is not None:
+            final_state = self.simulation_state.get("final_state", {})
+            inventories = final_state.get("airport_inventories", {})
+            return {"inventories": inventories}
+        
+        # No simulation started
+        return {"inventories": {}}
     
     def get_history(self) -> Dict:
         """

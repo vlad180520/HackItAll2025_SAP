@@ -81,7 +81,8 @@ class SimulationRunner:
             raise
         
         round_num = 0
-        total_cost = 0.0
+        # Track cumulative total cost from API (it's already cumulative)
+        cumulative_total_cost = 0.0
         
         try:
             while round_num < max_rounds:
@@ -158,17 +159,25 @@ class SimulationRunner:
                         "rationale": rationale,
                     })
                     
-                    # Use totalCost from API response if available, otherwise use calculated
-                    api_total_cost = response.get("totalCost", cost_breakdown["total_cost"])
+                    # API returns cumulative totalCost (running total), not incremental
+                    api_total_cost = response.get("totalCost", 0.0)
+                    cumulative_total_cost = api_total_cost  # Update cumulative total
+                    
+                    # Calculate incremental cost for this round (for logging)
+                    # Get previous total from state or cost_log
+                    previous_total = self.state_manager.state.total_cost if round_num == 0 else self.cost_log[-1].get("api_total_cost", 0.0) if self.cost_log else 0.0
+                    incremental_cost = api_total_cost - previous_total
                     
                     self.cost_log.append({
                         "round": round_num,
                         "costs": cost_breakdown,
                         "penalties": response.get("penalties", []),
                         "api_total_cost": api_total_cost,
+                        "incremental_cost": incremental_cost,
                     })
                     
-                    total_cost += api_total_cost
+                    # Update state's total cost with API's cumulative total
+                    self.state_manager.state.total_cost = api_total_cost
                     
                     # Calculate next time for next round (API advances time after processing)
                     next_hour = response_hour + 1
@@ -190,7 +199,7 @@ class SimulationRunner:
                     break
                 
                 if round_num % 100 == 0:
-                    logger.info(f"Completed {round_num} rounds, total cost: {total_cost:.2f}")
+                    logger.info(f"Completed {round_num} rounds, total cost: {cumulative_total_cost:.2f}")
         
         finally:
             # Stop session
@@ -204,14 +213,15 @@ class SimulationRunner:
         # Generate final report
         final_report = {
             "rounds_completed": round_num,
-            "total_cost": total_cost,
+            "total_cost": cumulative_total_cost,
             "final_state": self.state_manager.state.dict(),
             "decision_log": self.decision_log,
             "cost_log": self.cost_log,
             "session_id": session_id,
+            "penalty_log": self.state_manager.state.penalty_log,
         }
         
-        logger.info(f"Simulation completed: {round_num} rounds, total cost: {total_cost:.2f}")
+        logger.info(f"Simulation completed: {round_num} rounds, total cost: {cumulative_total_cost:.2f}")
         return final_report
     
     def _get_visible_flights(self, current_time: ReferenceHour) -> List[Flight]:
@@ -317,7 +327,7 @@ class SimulationRunner:
                 issued_time=issued_time,
             )
             self.state_manager.state.penalty_log.append(penalty)
-            self.state_manager.state.total_cost += penalty.cost
+            # Don't add penalty cost here - totalCost from API already includes all penalties
         
         # Update current time from response (API returns the time we just played)
         response_day = response.get("day", current_time.day)
@@ -325,6 +335,10 @@ class SimulationRunner:
         # Sync state time with API response time
         self.state_manager.state.current_day = response_day
         self.state_manager.state.current_hour = response_hour
+        
+        # Update total cost from API response (cumulative total)
+        api_total_cost = response.get("totalCost", self.state_manager.state.total_cost)
+        self.state_manager.state.total_cost = api_total_cost
     
     def handle_errors(self, exception: Exception) -> None:
         """
