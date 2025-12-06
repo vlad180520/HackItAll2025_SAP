@@ -6,6 +6,7 @@ import logging.handlers
 from pathlib import Path
 from typing import Dict, List
 from datetime import datetime
+from utils import format_cost
 
 
 def configure_logging(level: str = "INFO", log_file: str = "simulation.log") -> None:
@@ -139,9 +140,9 @@ def generate_final_report(log_data: List[Dict], output_path: str) -> None:
         f.write("SIMULATION FINAL REPORT\n")
         f.write("=" * 80 + "\n\n")
         f.write(f"Total Rounds: {len(log_data)}\n")
-        f.write(f"Total Cost: ${total_cost:,.2f}\n")
-        f.write(f"Operational Cost: ${total_operational:,.2f}\n")
-        f.write(f"Penalties: ${total_penalties:,.2f}\n\n")
+        f.write(f"Total Cost: {format_cost(total_cost)}\n")
+        f.write(f"Operational Cost: {format_cost(total_operational)}\n")
+        f.write(f"Penalties: {format_cost(total_penalties)}\n\n")
         f.write("Penalty Breakdown:\n")
         for code, count in penalty_counts.items():
             f.write(f"  {code}: {count}\n")

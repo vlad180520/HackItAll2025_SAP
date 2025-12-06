@@ -57,8 +57,9 @@ KIT_DEFINITIONS: Dict[str, Dict[str, float]] = {
 }
 
 
-# File path constants (relative to project root)
-CSV_BASE_PATH = "eval-platform/src/main/resources/liquibase/data"
+# File path constants (relative to backend directory)
+# Data files are in ../HackitAll2025-main/eval-platform/...
+CSV_BASE_PATH = "../HackitAll2025-main/eval-platform/src/main/resources/liquibase/data"
 AIRPORTS_CSV = f"{CSV_BASE_PATH}/airports_with_stocks.csv"
 AIRCRAFT_TYPES_CSV = f"{CSV_BASE_PATH}/aircraft_types.csv"
 FLIGHT_PLAN_CSV = f"{CSV_BASE_PATH}/flight_plan.csv"

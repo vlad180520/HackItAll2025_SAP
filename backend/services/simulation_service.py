@@ -7,11 +7,12 @@ from api_client import ValidationError
 from data_loader import load_airports, load_aircraft_types, load_flight_schedule
 from api_client import ExternalAPIClient
 from state_manager import StateManager
-from optimizer import GreedyOptimizer
+from solution.decision_maker import DecisionMaker
 from validator import Validator
 from simulation_runner import SimulationRunner
 from models.game_state import GameState
 from config import KIT_DEFINITIONS, AIRPORTS_CSV, AIRCRAFT_TYPES_CSV, FLIGHT_PLAN_CSV
+from utils import format_cost
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class SimulationService:
             api_key_header=self.config.API_KEY_HEADER,
         )
         state_manager = StateManager(initial_state)
-        optimizer = GreedyOptimizer(self.config)
+        optimizer = DecisionMaker(self.config)
         validator = Validator(airports, aircraft, KIT_DEFINITIONS)
         
         runner = SimulationRunner(
@@ -82,7 +83,7 @@ class SimulationService:
         Get current simulation status.
         
         Returns:
-            Status dictionary
+            Status dictionary with formatted costs
         """
         # If simulation is running, get live data from runner
         if self.simulation_runner is not None:
@@ -92,7 +93,8 @@ class SimulationService:
             return {
                 "status": "running",
                 "round": rounds,
-                "costs": state.total_cost,  # Get from current state
+                "costs": state.total_cost,  # Numeric value
+                "costs_formatted": format_cost(state.total_cost),  # Formatted string
                 "penalties": [p.dict() for p in state.penalty_log[-10:]],  # Last 10 penalties
             }
         
@@ -107,10 +109,12 @@ class SimulationService:
             else:
                 penalty_log = []
             
+            total_cost = self.simulation_state.get("total_cost", 0.0)
             return {
                 "status": "completed",
                 "round": self.simulation_state.get("rounds_completed", 0),
-                "costs": self.simulation_state.get("total_cost", 0.0),
+                "costs": total_cost,  # Numeric value
+                "costs_formatted": format_cost(total_cost),  # Formatted string
                 "penalties": penalty_log[-10:],  # Last 10 penalties
             }
         
@@ -119,6 +123,7 @@ class SimulationService:
             "status": "not_started",
             "round": 0,
             "costs": 0.0,
+            "costs_formatted": "0,00",
             "penalties": [],
         }
     

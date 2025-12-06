@@ -94,12 +94,24 @@ class SimulationRunner:
                 visible_flights = self._get_visible_flights(current_time)
                 
                 # Optimizer produces decisions
-                decisions, purchases, rationale = self.optimizer.decide(
-                    self.state_manager.state,
-                    visible_flights,
-                    self.airports,
-                    self.aircraft,
-                )
+                # Check if optimizer has decide() or make_decisions()
+                if hasattr(self.optimizer, 'make_decisions'):
+                    # New DecisionMaker interface
+                    decisions, purchases = self.optimizer.make_decisions(
+                        self.state_manager.state,
+                        visible_flights,
+                        self.airports,
+                        self.aircraft,
+                    )
+                    rationale = f"LP Strategy: {len(decisions)} loads, {len(purchases)} purchases"
+                else:
+                    # Old GreedyOptimizer interface
+                    decisions, purchases, rationale = self.optimizer.decide(
+                        self.state_manager.state,
+                        visible_flights,
+                        self.airports,
+                        self.aircraft,
+                    )
                 
                 # Validate decisions
                 validation_report = self.validator.validate_decisions(

@@ -83,7 +83,7 @@ function Dashboard({ apiKey }: DashboardProps) {
         <div className="status-info">
           <h2>Status: {status?.status || 'not_started'}</h2>
           <p>Round: {status?.round || 0} / 720</p>
-          <p>Total Cost: ${typeof status?.costs === 'number' ? status.costs.toFixed(2) : '0.00'}</p>
+          <p>Total Cost: {status?.costs_formatted || (typeof status?.costs === 'number' ? status.costs.toFixed(2) : '0,00')}</p>
           {status?.status === 'running' && (
             <p style={{ color: '#4CAF50', fontWeight: 'bold' }}>● Simulation Running...</p>
           )}

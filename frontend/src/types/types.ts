@@ -80,6 +80,7 @@ export interface StatusResponse {
   status: string;
   round: number;
   costs: number | Record<string, number>;
+  costs_formatted?: string;  // Formatted cost string with European formatting (e.g., "12.345,67")
   penalties: PenaltyRecord[];
 }
 

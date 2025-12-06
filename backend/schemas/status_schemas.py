@@ -1,7 +1,7 @@
 """Schemas for status endpoints."""
 
-from pydantic import BaseModel
-from typing import Dict, List, Any, Union
+from pydantic import BaseModel, Field
+from typing import Dict, List, Any, Union, Optional
 
 
 class StatusResponse(BaseModel):
@@ -10,6 +10,7 @@ class StatusResponse(BaseModel):
     status: str
     round: int
     costs: Union[float, Dict[str, float]]
+    costs_formatted: Optional[str] = Field(None, description="Formatted cost string with thousand separators")
     penalties: List[Dict[str, Any]]
 
 

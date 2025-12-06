@@ -9,7 +9,7 @@ from models.kit import KitLoadDecision, KitPurchaseOrder
 from models.airport import Airport
 from models.aircraft import AircraftType
 from solution.config import SolutionConfig
-from solution.strategies.optimal_strategy import OptimalKitStrategy
+from solution.strategies.rolling_lp_strategy import RollingLPStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,8 @@ class DecisionMaker:
     """
     Main decision maker that coordinates solution strategy.
     
-    Folosește OptimalKitStrategy - RADICAL zero-waste approach.
+    Uses RollingLPStrategy - rolling-horizon min-cost flow/MILP optimization.
+    Falls back to heuristic if solver not available.
     """
     
     def __init__(self, config: SolutionConfig = None):
@@ -32,9 +33,13 @@ class DecisionMaker:
             config = SolutionConfig.default()
         
         self.config = config
-        self.strategy = OptimalKitStrategy(config)
+        self.strategy = RollingLPStrategy(
+            config=config,
+            horizon_hours=36,
+            solver_timeout_s=2
+        )
         
-        logger.info("DecisionMaker initialized with OptimalKitStrategy (Zero-Waste)")
+        logger.info("DecisionMaker initialized with RollingLPStrategy")
     
     def make_decisions(
         self,
@@ -55,7 +60,7 @@ class DecisionMaker:
         Returns:
             Tuple of (load_decisions, purchase_orders)
         """
-        logger.info(f"Making decisions for round {state.current_round}")
+        logger.info(f"Making decisions for day {state.current_day} hour {state.current_hour}")
         
         try:
             loads, purchases = self.strategy.optimize(
@@ -81,5 +86,9 @@ class DecisionMaker:
             new_config: New configuration
         """
         self.config = new_config
-        self.strategy = OptimalKitStrategy(new_config)
+        self.strategy = RollingLPStrategy(
+            config=new_config,
+            horizon_hours=36,
+            solver_timeout_s=2
+        )
         logger.info("Configuration updated, strategy recreated")
