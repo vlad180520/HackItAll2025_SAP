@@ -8,73 +8,60 @@ from typing import Dict
 class SolutionConfig:
     """Configuration for solution strategies and optimization."""
     
-    # === CRITICAL: PASSENGER LOADING PARAMETERS ===
+    # === OPTIMIZED: PASSENGER LOADING PARAMETERS ===
     
-    # Buffer for passenger loads: ALWAYS load more than passengers!
-    PASSENGER_BUFFER_PERCENT: float = 0.15  # 15% extra
-    MIN_BUFFER_KITS: int = 2  # Minimum 2 extra kits per class
-    MAX_BUFFER_KITS: int = 10  # Max extra to avoid waste
+    # Dynamic buffer based on stock health
+    PASSENGER_BUFFER_PERCENT: float = 0.10  # 10% base (optimized from 15%)
+    MIN_BUFFER_KITS: int = 2
+    MAX_BUFFER_KITS: int = 8  # Reduced from 10 to save costs
     
-    # === HUB REORDERING (ONLY AT HUB1) ===
+    # Dynamic buffer thresholds
+    HIGH_STOCK_BUFFER: float = 0.08   # 8% when stock > 50%
+    MEDIUM_STOCK_BUFFER: float = 0.12  # 12% when stock 30-50%
+    LOW_STOCK_BUFFER: float = 0.15    # 15% when stock < 30%
     
-    # Reorder at HUB1 when stock drops below this percentage
-    HUB_REORDER_THRESHOLD: float = 0.30  # 30% of capacity
+    # === OPTIMIZED: HUB REORDERING ===
     
-    # Target stock level at HUB1 after reordering
-    HUB_TARGET_LEVEL: float = 0.80  # 80% of capacity
+    # Lower thresholds to reduce inventory costs
+    HUB_REORDER_THRESHOLD: float = 0.25  # 25% (optimized from 30%)
+    HUB_TARGET_LEVEL: float = 0.70  # 70% (optimized from 80%)
+    
+    # Demand-based ordering
+    USE_DEMAND_BASED_ORDERING: bool = True
+    DEMAND_SAFETY_MARGIN: float = 0.10  # 10% safety margin
     
     # === OUTSTATION MONITORING ===
     
-    # Alert threshold for outstations (no direct ordering)
-    OUTSTATION_MIN_STOCK_THRESHOLD: float = 0.20  # 20% of capacity
+    OUTSTATION_MIN_STOCK_THRESHOLD: float = 0.15  # 15% of capacity
     
     # === PLANNING HORIZON ===
     
-    # Lookahead hours: how many hours ahead to consider for planning
     LOOKAHEAD_HOURS: int = 24
-    
-    # Historical demand tracking for pattern detection
     DEMAND_HISTORY_HOURS: int = 48
     
-    # === LEGACY PARAMETERS (kept for compatibility) ===
+    # === SPECIAL OPTIMIZATIONS ===
     
-    # Safety buffer: extra kits to keep above minimum requirements
-    SAFETY_BUFFER: int = 5
+    # HUB gets minimal buffer (easy to restock)
+    HUB_SPECIAL_BUFFER: float = 0.08  # 8% only
     
-    # Reorder threshold: when stock falls below this ratio, trigger purchase
-    REORDER_THRESHOLD: float = 0.3  # 30% of target
-    
-    # Target stock level: aim to maintain this many kits per class
-    TARGET_STOCK_LEVEL: int = 50
-    
-    # Demand multiplier: factor to apply to predicted demand for safety
-    DEMAND_MULTIPLIER: float = 1.2  # 20% safety margin
+    # Short flights get less buffer (less risk)
+    SHORT_FLIGHT_KM: int = 500
+    SHORT_FLIGHT_BUFFER: float = 0.08
     
     # === COST OPTIMIZATION ===
     
-    # Purchase cost weight: importance of minimizing purchase costs
-    PURCHASE_COST_WEIGHT: float = 1.0
-    
-    # Penalty cost weight: importance of avoiding penalties
-    PENALTY_COST_WEIGHT: float = 3.0
-    
-    # Loading cost weight: importance of minimizing loading costs
-    LOADING_COST_WEIGHT: float = 0.5
+    PURCHASE_COST_WEIGHT: float = 1.2
+    PENALTY_COST_WEIGHT: float = 5.0  # High priority
+    LOADING_COST_WEIGHT: float = 0.8
     
     # === STRATEGY SELECTION ===
     
-    # Enable aggressive optimization (takes more risks)
     AGGRESSIVE_MODE: bool = False
-    
-    # Enable conservative mode (plays it safe)
     CONSERVATIVE_MODE: bool = False
     
     # === BATCH AND TIMING ===
     
-    # Minimum purchase quantity per order
-    MIN_PURCHASE_QUANTITY: int = 10
-    
-    # Maximum purchase quantity per order
+    MIN_PURCHASE_QUANTITY: int = 5
     MAX_PURCHASE_QUANTITY: int = 100
     
     # Purchase in batches of this size

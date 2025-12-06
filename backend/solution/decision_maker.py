@@ -9,7 +9,7 @@ from models.kit import KitLoadDecision, KitPurchaseOrder
 from models.airport import Airport
 from models.aircraft import AircraftType
 from solution.config import SolutionConfig
-from solution.strategies.greedy_strategy import GreedyKitStrategy
+from solution.strategies.optimal_strategy import OptimalKitStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class DecisionMaker:
     """
     Main decision maker that coordinates solution strategy.
     
-    Folosește GreedyKitStrategy pentru decizii.
+    Folosește OptimalKitStrategy - RADICAL zero-waste approach.
     """
     
     def __init__(self, config: SolutionConfig = None):
@@ -32,9 +32,9 @@ class DecisionMaker:
             config = SolutionConfig.default()
         
         self.config = config
-        self.strategy = GreedyKitStrategy(config)
+        self.strategy = OptimalKitStrategy(config)
         
-        logger.info("DecisionMaker initialized with GreedyKitStrategy")
+        logger.info("DecisionMaker initialized with OptimalKitStrategy (Zero-Waste)")
     
     def make_decisions(
         self,
@@ -81,5 +81,5 @@ class DecisionMaker:
             new_config: New configuration
         """
         self.config = new_config
-        self.strategy = GreedyKitStrategy(new_config)
+        self.strategy = OptimalKitStrategy(new_config)
         logger.info("Configuration updated, strategy recreated")
