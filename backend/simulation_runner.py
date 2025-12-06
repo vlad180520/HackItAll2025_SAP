@@ -56,13 +56,14 @@ class SimulationRunner:
         self.decision_log = []
         self.cost_log = []
     
-    def run(self, api_key: str, max_rounds: int = TOTAL_ROUNDS) -> Dict:
+    def run(self, api_key: str, max_rounds: int = TOTAL_ROUNDS, stop_existing: bool = True) -> Dict:
         """
         Run the main simulation loop.
         
         Args:
             api_key: API key for authentication
             max_rounds: Maximum number of rounds to run
+            stop_existing: If True, stop any existing session first (default: True)
             
         Returns:
             Final report dictionary
@@ -71,7 +72,7 @@ class SimulationRunner:
         
         # Start session
         try:
-            session_id = self.api_client.start_session(api_key)
+            session_id = self.api_client.start_session(api_key, stop_existing=stop_existing)
             if not session_id:
                 raise ValueError("No session_id returned from start_session")
             logger.info(f"Session started: {session_id}")
@@ -141,13 +142,17 @@ class SimulationRunner:
                         kit_purchasing_orders=total_purchases,
                     )
                     
-                    # Update state with response
+                    # Update state with response (this updates time to match API)
                     self._update_state_from_response(response, current_time)
+                    
+                    # Get updated time from response
+                    response_day = response.get("day", current_time.day)
+                    response_hour = response.get("hour", current_time.hour)
                     
                     # Log round
                     self.decision_log.append({
                         "round": round_num,
-                        "time": {"day": current_time.day, "hour": current_time.hour},
+                        "time": {"day": response_day, "hour": response_hour},
                         "decisions": len(decisions),
                         "purchases": len(purchases),
                         "rationale": rationale,
@@ -165,6 +170,17 @@ class SimulationRunner:
                     
                     total_cost += api_total_cost
                     
+                    # Calculate next time for next round (API advances time after processing)
+                    next_hour = response_hour + 1
+                    next_day = response_day
+                    if next_hour >= 24:
+                        next_hour = 0
+                        next_day += 1
+                    
+                    # Advance state to next hour for next round
+                    self.state_manager.advance_time_to(next_day, next_hour, self.airports)
+                    round_num += 1
+                    
                 except ValidationError as e:
                     logger.error(f"API validation error in round {round_num}: {e}")
                     break
@@ -173,27 +189,13 @@ class SimulationRunner:
                     self.handle_errors(e)
                     break
                 
-                # Advance time based on API response
-                response_day = response.get("day", current_time.day)
-                response_hour = response.get("hour", current_time.hour)
-                
-                # Calculate next time (API returns current time, we need next)
-                next_hour = response_hour + 1
-                next_day = response_day
-                if next_hour >= 24:
-                    next_hour = 0
-                    next_day += 1
-                
-                self.state_manager.advance_time_to(next_day, next_hour, self.airports)
-                round_num += 1
-                
                 if round_num % 100 == 0:
                     logger.info(f"Completed {round_num} rounds, total cost: {total_cost:.2f}")
         
         finally:
             # Stop session
             try:
-                final_report = self.api_client.stop_session(api_key, session_id)
+                final_report = self.api_client.stop_session(api_key)
                 logger.info("Session stopped")
             except Exception as e:
                 logger.error(f"Error stopping session: {e}")
@@ -317,11 +319,12 @@ class SimulationRunner:
             self.state_manager.state.penalty_log.append(penalty)
             self.state_manager.state.total_cost += penalty.cost
         
-        # Update current time from response
+        # Update current time from response (API returns the time we just played)
         response_day = response.get("day", current_time.day)
         response_hour = response.get("hour", current_time.hour)
-        if response_day != current_time.day or response_hour != current_time.hour:
-            self.state_manager.advance_time_to(response_day, response_hour, self.airports)
+        # Sync state time with API response time
+        self.state_manager.state.current_day = response_day
+        self.state_manager.state.current_hour = response_hour
     
     def handle_errors(self, exception: Exception) -> None:
         """

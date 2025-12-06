@@ -96,6 +96,20 @@ class ExternalAPIClient:
                 error_msg = error_details.get("detail", error_details.get("message", "Validation error"))
                 raise ValidationError(error_msg, error_details)
             
+            # Handle authentication errors
+            if response.status_code == 401:
+                error_msg = "Unauthorized - Check API key and ensure evaluation platform database is initialized"
+                logger.error(f"401 Unauthorized for {endpoint}. API key: {api_key[:8]}...")
+                logger.error(f"Response headers: {dict(response.headers)}")
+                raise ValidationError(error_msg, {"status_code": 401, "headers": dict(response.headers)})
+            
+            # Handle conflict errors (409)
+            if response.status_code == 409:
+                error_details = response.json() if response.content else {}
+                error_msg = error_details.get("detail", "Conflict - An active session already exists for this team")
+                logger.warning(f"409 Conflict for {endpoint}: {error_msg}")
+                raise ValidationError(error_msg, {"status_code": 409, "details": error_details})
+            
             # Raise for other HTTP errors
             response.raise_for_status()
             
@@ -111,20 +125,33 @@ class ExternalAPIClient:
             logger.error(f"Request error for {endpoint}: {e}")
             raise
     
-    def start_session(self, api_key: str) -> str:
+    def start_session(self, api_key: str, stop_existing: bool = True) -> str:
         """
         Start a new session with the evaluation platform.
         
         Args:
             api_key: API key for authentication
+            stop_existing: If True, stop any existing session first (default: True)
             
         Returns:
             Session ID as string
         """
         logger.info("Starting session with evaluation platform")
-        session_id = self._make_request("POST", "/api/v1/session/start", api_key, return_text=True)
-        logger.info(f"Session started: {session_id}")
-        return session_id
+        
+        # If there's a conflict and stop_existing is True, stop the existing session first
+        try:
+            session_id = self._make_request("POST", "/api/v1/session/start", api_key, return_text=True)
+            logger.info(f"Session started: {session_id}")
+            return session_id
+        except ValidationError as e:
+            if e.details.get("status_code") == 409 and stop_existing:
+                logger.info("Active session exists, stopping it first...")
+                self.stop_existing_session(api_key)
+                # Retry starting session
+                session_id = self._make_request("POST", "/api/v1/session/start", api_key, return_text=True)
+                logger.info(f"Session started after stopping existing: {session_id}")
+                return session_id
+            raise
     
     def play_round(
         self,
@@ -196,18 +223,44 @@ class ExternalAPIClient:
         
         return response
     
-    def stop_session(self, api_key: str, session_id: str) -> Dict:
+    def stop_session(self, api_key: str, session_id: Optional[str] = None) -> Dict:
         """
         Stop the current session.
         
         Args:
             api_key: API key for authentication
-            session_id: Current session ID
+            session_id: Optional session ID (if not provided, stops session for API key)
             
         Returns:
             HourResponseDto with final session report
         """
-        logger.info(f"Stopping session {session_id}")
-        response = self._make_request("POST", "/api/v1/session/end", api_key, session_id=session_id)
+        logger.info(f"Stopping session for API key {api_key[:8]}...")
+        # Note: The API endpoint /api/v1/session/end only needs API-KEY header
+        # It finds the session by API key automatically
+        response = self._make_request("POST", "/api/v1/session/end", api_key)
         return response
+    
+    def stop_existing_session(self, api_key: str) -> bool:
+        """
+        Stop any existing session for the API key (if one exists).
+        
+        Args:
+            api_key: API key for authentication
+            
+        Returns:
+            True if a session was stopped, False if no session existed
+        """
+        try:
+            self.stop_session(api_key)
+            logger.info(f"Stopped existing session for API key {api_key[:8]}...")
+            return True
+        except ValidationError as e:
+            if e.details.get("status_code") == 404:
+                # No session exists, which is fine
+                logger.info(f"No existing session to stop for API key {api_key[:8]}...")
+                return False
+            raise
+        except Exception as e:
+            logger.warning(f"Error stopping existing session: {e}")
+            return False
 

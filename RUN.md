@@ -109,9 +109,19 @@ mvn clean install
 
 ### 3.3 Run the Platform
 
+**Important:** The platform must be run with the `local` profile to load teams data:
+
 ```bash
+mvn spring-boot:run -Dspring-boot.run.arguments=--spring.profiles.active=local
+```
+
+Or set the profile as an environment variable:
+```bash
+export SPRING_PROFILES_ACTIVE=local
 mvn spring-boot:run
 ```
+
+**Why?** The Liquibase changesets that load teams, airports, aircraft, and flights data have `context="local"`, so they only run when the `local` profile is active.
 
 The evaluation platform will be available at: `http://localhost:8080`
 
