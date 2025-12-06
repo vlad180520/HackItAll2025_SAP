@@ -1,0 +1,35 @@
+.cost-breakdown {
+  width: 100%;
+}
+
+.cost-breakdown h3 {
+  margin-top: 0;
+  color: #333;
+}
+
+.charts-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.pie-chart,
+.line-chart {
+  background: #f9f9f9;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.pie-chart h4,
+.line-chart h4 {
+  margin-top: 0;
+  color: #333;
+}
+
+@media (max-width: 768px) {
+  .charts-container {
+    grid-template-columns: 1fr;
+  }
+}
+
