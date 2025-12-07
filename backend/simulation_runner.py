@@ -186,9 +186,18 @@ class SimulationRunner:
                     # Update state with response (this updates time to match API)
                     self._update_state_from_response(response, current_time)
                     
-                    # Record penalties for reactive purchasing
-                    # The SimpleReactiveStrategy uses this to decide when to buy
+                    # Record penalties locally (full history) and pass to strategy
                     penalties = response.get("penalties", [])
+                    for p in penalties:
+                        if isinstance(p, dict):
+                            self.state_manager.state.penalty_log.append(
+                                PenaltyRecord(
+                                    code=p.get("code", "UNKNOWN"),
+                                    cost=p.get("penalty", p.get("cost", 0)),
+                                    reason=p.get("reason", ""),
+                                    issued_time=ReferenceHour(day=response_day, hour=response_hour),
+                                )
+                            )
                     if hasattr(self.optimizer, 'record_penalties'):
                         self.optimizer.record_penalties(penalties)
                     
@@ -464,4 +473,3 @@ class SimulationRunner:
         # Decide whether to retry or stop
         # For now, we stop on any error
         # Could implement retry logic here
-

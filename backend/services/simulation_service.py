@@ -96,7 +96,8 @@ class SimulationService:
                 "round": rounds,
                 "costs": state.total_cost,  # Numeric value
                 "costs_formatted": format_cost(state.total_cost),  # Formatted string
-                "penalties": [p.dict() for p in state.penalty_log[-10:]],  # Last 10 penalties
+                # Send full penalty log so UI can show everything
+                "penalties": [p.dict() for p in state.penalty_log],
                 "cumulative_decisions": state.cumulative_decisions,
                 "cumulative_purchases": state.cumulative_purchases,
             }
@@ -137,7 +138,8 @@ class SimulationService:
                 "round": rounds_completed,
                 "costs": total_cost,  # Numeric value
                 "costs_formatted": format_cost(total_cost),  # Formatted string
-                "penalties": penalty_log[-10:] if penalty_log else [],  # Last 10 penalties
+                # Send full penalty log so UI can show everything
+                "penalties": penalty_log if penalty_log else [],
                 "cumulative_decisions": final_state.get("cumulative_decisions", 0),
                 "cumulative_purchases": final_state.get("cumulative_purchases", 0),
             }
@@ -305,4 +307,3 @@ class SimulationService:
         except Exception as e:
             logger.error(f"Error stopping simulation: {e}")
             raise
-

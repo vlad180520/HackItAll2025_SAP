@@ -47,9 +47,9 @@ class FinalStrategy:
         self.initialized = False
         
         # Cost threshold: slightly more permissive to reduce unfulfilled penalties
-        self.cost_threshold = 0.9  # Load if movement < 90% of unfulfilled
+        self.cost_threshold = 1  # Load if movement < 90% of unfulfilled
         # Small passenger buffer to reduce under-coverage
-        self.load_buffer_pct = 0.05
+        self.load_buffer_pct = 0
         
         logger.info("FINAL STRATEGY initialized")
     
