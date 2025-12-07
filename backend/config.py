@@ -79,8 +79,10 @@ class Config(BaseSettings):
     """Application configuration with environment variable support."""
     
     # API Configuration
-    # Point to external evaluation platform
-    API_BASE_URL: str = "https://hackaton2025-lsac-eval.cfapps.eu12.hana.ondemand.com"
+    # Local base URL for non-evaluation endpoints (if any)
+    API_BASE_URL: str = "http://localhost:8080"
+    # External evaluation base URL for start/play/end
+    API_BASE_URL_EVAL: str = "https://hackaton2025-lsac-eval.cfapps.eu12.hana.ondemand.com"
     API_KEY_HEADER: str = "API-KEY"
     
     # API Endpoints

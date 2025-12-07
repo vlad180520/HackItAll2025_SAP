@@ -60,6 +60,7 @@ class SimulationService:
         api_client = ExternalAPIClient(
             base_url=self.config.API_BASE_URL,
             api_key_header=self.config.API_KEY_HEADER,
+            base_url_eval=self.config.API_BASE_URL_EVAL,
         )
         state_manager = StateManager(initial_state)
         optimizer = DecisionMaker(self.config)

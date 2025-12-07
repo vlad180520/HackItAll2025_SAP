@@ -21,7 +21,13 @@ class ValidationError(Exception):
 class ExternalAPIClient:
     """HTTP client for external evaluation platform."""
     
-    def __init__(self, base_url: str, api_key_header: str = "API-KEY", timeout: int = 30):
+    def __init__(
+        self,
+        base_url: str,
+        api_key_header: str = "API-KEY",
+        timeout: int = 30,
+        base_url_eval: Optional[str] = None,
+    ):
         """
         Initialize API client.
         
@@ -29,8 +35,10 @@ class ExternalAPIClient:
             base_url: Base URL of the evaluation platform
             api_key_header: Header name for API key
             timeout: Request timeout in seconds
+            base_url_eval: Optional override for session start/play/end (external host)
         """
         self.base_url = base_url.rstrip("/")
+        self.base_url_eval = base_url_eval.rstrip("/") if base_url_eval else self.base_url
         self.api_key_header = api_key_header
         self.timeout = timeout
         
@@ -55,6 +63,7 @@ class ExternalAPIClient:
         params: Optional[Dict] = None,
         session_id: Optional[str] = None,
         return_text: bool = False,
+        use_eval_base: bool = False,
     ) -> Dict:
         """
         Make HTTP request with error handling.
@@ -75,7 +84,8 @@ class ExternalAPIClient:
             ValidationError: For HTTP 400 responses
             requests.RequestException: For other HTTP errors
         """
-        url = f"{self.base_url}{endpoint}"
+        base = self.base_url_eval if use_eval_base else self.base_url
+        url = f"{base}{endpoint}"
         headers = {self.api_key_header: api_key}
         if session_id:
             headers["SESSION-ID"] = session_id
@@ -140,7 +150,9 @@ class ExternalAPIClient:
         
         # If there's a conflict and stop_existing is True, stop the existing session first
         try:
-            session_id = self._make_request("POST", "/api/v1/session/start", api_key, return_text=True)
+            session_id = self._make_request(
+                "POST", "/api/v1/session/start", api_key, return_text=True, use_eval_base=True
+            )
             logger.info(f"Session started: {session_id}")
             return session_id
         except ValidationError as e:
@@ -148,7 +160,9 @@ class ExternalAPIClient:
                 logger.info("Active session exists, stopping it first...")
                 self.stop_existing_session(api_key)
                 # Retry starting session
-                session_id = self._make_request("POST", "/api/v1/session/start", api_key, return_text=True)
+                session_id = self._make_request(
+                    "POST", "/api/v1/session/start", api_key, return_text=True, use_eval_base=True
+                )
                 logger.info(f"Session started after stopping existing: {session_id}")
                 return session_id
             raise
@@ -213,7 +227,8 @@ class ExternalAPIClient:
             "/api/v1/play/round", 
             api_key, 
             json_data=payload,
-            session_id=session_id
+            session_id=session_id,
+            use_eval_base=True,
         )
         
         # Log penalties if present
@@ -237,7 +252,7 @@ class ExternalAPIClient:
         logger.info(f"Stopping session for API key {api_key[:8]}...")
         # Note: The API endpoint /api/v1/session/end only needs API-KEY header
         # It finds the session by API key automatically
-        response = self._make_request("POST", "/api/v1/session/end", api_key, session_id=session_id)
+        response = self._make_request("POST", "/api/v1/session/end", api_key, session_id=session_id, use_eval_base=True)
         return response
     
     def stop_existing_session(self, api_key: str) -> bool:
@@ -263,4 +278,3 @@ class ExternalAPIClient:
         except Exception as e:
             logger.warning(f"Error stopping existing session: {e}")
             return False
-
