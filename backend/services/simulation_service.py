@@ -4,14 +4,14 @@ import logging
 from typing import Dict, Optional
 from config import Config
 from api_client import ValidationError
-from data_loader import load_airports, load_aircraft_types, load_flight_schedule
+from data_loader import load_airports, load_aircraft_types
 from api_client import ExternalAPIClient
 from state_manager import StateManager
 from solution.decision_maker import DecisionMaker
 from validator import Validator
 from simulation_runner import SimulationRunner
 from models.game_state import GameState
-from config import KIT_DEFINITIONS, AIRPORTS_CSV, AIRCRAFT_TYPES_CSV, FLIGHT_PLAN_CSV
+from config import KIT_DEFINITIONS, AIRPORTS_CSV, AIRCRAFT_TYPES_CSV
 from utils import format_cost
 
 logger = logging.getLogger(__name__)
@@ -37,8 +37,6 @@ class SimulationService:
         # Load data
         airports = load_airports(AIRPORTS_CSV, self.config)
         aircraft = load_aircraft_types(AIRCRAFT_TYPES_CSV)
-        # Note: Flights are provided by the evaluation platform via API responses,
-        # not loaded from CSV. The flight_plan.csv is just a schedule template.
         
         # Initialize initial game state
         initial_inventories = {}

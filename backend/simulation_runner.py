@@ -377,8 +377,19 @@ class SimulationRunner:
             origin = flight_event.get("originAirport", "")
             destination = flight_event.get("destinationAirport", "")
             
-            departure = flight_event.get("departure", {})
-            arrival = flight_event.get("arrival", {})
+            # Support multiple key variants from API
+            departure = (
+                flight_event.get("departure")
+                or flight_event.get("scheduledDeparture")
+                or flight_event.get("plannedDeparture")
+                or {}
+            )
+            arrival = (
+                flight_event.get("arrival")
+                or flight_event.get("scheduledArrival")
+                or flight_event.get("plannedArrival")
+                or {}
+            )
             scheduled_departure = ReferenceHour(
                 day=departure.get("day", 0),
                 hour=departure.get("hour", 0)
@@ -386,6 +397,13 @@ class SimulationRunner:
             scheduled_arrival = ReferenceHour(
                 day=arrival.get("day", 0),
                 hour=arrival.get("hour", 0)
+            )
+            
+            distance_val = (
+                flight_event.get("distance")
+                or flight_event.get("plannedDistance")
+                or flight_event.get("actualDistance")
+                or 0.0
             )
             
             # Convert passengers from camelCase to uppercase
@@ -405,7 +423,7 @@ class SimulationRunner:
                 scheduled_departure=scheduled_departure,
                 scheduled_arrival=scheduled_arrival,
                 planned_passengers=planned_passengers,
-                planned_distance=flight_event.get("distance", 0.0),
+                planned_distance=distance_val,
                 aircraft_type=flight_event.get("aircraftType", ""),
                 event_type=flight_event.get("eventType", "SCHEDULED"),
             )

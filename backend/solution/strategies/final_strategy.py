@@ -46,10 +46,10 @@ class FinalStrategy:
         self.pending_purchases: Dict[str, int] = defaultdict(int)
         self.initialized = False
         
-        # Cost threshold: slightly more permissive to reduce unfulfilled penalties
-        self.cost_threshold = 1  # Load if movement < 90% of unfulfilled
-        # Small passenger buffer to reduce under-coverage
-        self.load_buffer_pct = 0
+        # Load aggressively; cost check effectively disabled
+        self.cost_threshold = 10.0
+        # Passenger buffer to reduce under-coverage
+        self.load_buffer_pct = 0.08
         
         logger.info("FINAL STRATEGY initialized")
     
@@ -98,11 +98,8 @@ class FinalStrategy:
         Movement cost = weight × distance × fuel_cost
         Unfulfilled penalty = factor × distance / 1000
         """
-        weight = KIT_WEIGHTS.get(class_type, 10)
-        movement_cost = weight * distance * fuel_cost
-        unfulfilled_cost = UNFULFILLED_FACTOR.get(class_type, 500) * distance / 1000
-        
-        return movement_cost < unfulfilled_cost * self.cost_threshold
+        # Relaxed: always allow loading (we clamp by capacity later)
+        return True
     
     def record_penalties(self, penalties: List[Dict]) -> None:
         pass
@@ -125,10 +122,6 @@ class FinalStrategy:
         purchase_orders = []
         
         for flight in flights:
-            flight_hour = flight.scheduled_departure.day * 24 + flight.scheduled_departure.hour
-            if flight_hour != current_hour:
-                continue
-            
             origin = flight.origin
             destination = flight.destination
             aircraft = aircraft_types.get(flight.aircraft_type)
@@ -152,19 +145,13 @@ class FinalStrategy:
                 if not self._should_load(class_type, distance, fuel_cost):
                     continue
                 
-                available = self._get_available(origin, class_type)
                 capacity = aircraft.kit_capacity.get(class_type, 0)
                 buffered = pax + int(pax * self.load_buffer_pct)
-                load = min(buffered, available, capacity)
+                load = min(buffered, capacity)
                 
                 if load > 0:
                     kits_to_load[class_type] = load
-                    self._consume(origin, class_type, load)
-                    
-                    if dest_airport:
-                        proc_time = dest_airport.processing_times.get(class_type, 6)
-                        arrival_hour = flight.scheduled_arrival.day * 24 + flight.scheduled_arrival.hour
-                        self._schedule_arrival(destination, arrival_hour, proc_time, {class_type: load})
+                    # Do not mutate local inventory; rely on API for actual tracking
             
             if kits_to_load:
                 load_decisions.append(KitLoadDecision(
