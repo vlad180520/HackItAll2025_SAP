@@ -9,45 +9,60 @@ interface PenaltyLogProps {
 function PenaltyLog({ penalties }: PenaltyLogProps) {
   const [showAll, setShowAll] = useState(false);
   
+  // Filter out invalid penalties and sort
   const sortedPenalties = useMemo(() => {
-    return [...penalties].sort((a, b) => {
-      if (a.issued_time.day !== b.issued_time.day) {
-        return b.issued_time.day - a.issued_time.day;
+    const validPenalties = (penalties || []).filter(p => 
+      p && p.issued_time && typeof p.issued_time.day === 'number' && typeof p.issued_time.hour === 'number'
+    );
+    
+    return [...validPenalties].sort((a, b) => {
+      const dayA = a.issued_time?.day ?? 0;
+      const dayB = b.issued_time?.day ?? 0;
+      const hourA = a.issued_time?.hour ?? 0;
+      const hourB = b.issued_time?.hour ?? 0;
+      
+      if (dayA !== dayB) {
+        return dayB - dayA;
       }
-      return b.issued_time.hour - a.issued_time.hour;
+      return hourB - hourA;
     });
   }, [penalties]);
 
   const totalPenalty = useMemo(() => {
-    return penalties.reduce((sum, p) => sum + p.cost, 0);
-  }, [penalties]);
+    return sortedPenalties.reduce((sum, p) => sum + (p.cost || 0), 0);
+  }, [sortedPenalties]);
 
   const penaltyStats = useMemo(() => {
     const stats: Record<string, { count: number; totalCost: number; avgCost: number }> = {};
-    penalties.forEach(p => {
-      if (!stats[p.code]) {
-        stats[p.code] = { count: 0, totalCost: 0, avgCost: 0 };
+    sortedPenalties.forEach(p => {
+      const code = p.code || 'UNKNOWN';
+      if (!stats[code]) {
+        stats[code] = { count: 0, totalCost: 0, avgCost: 0 };
       }
-      stats[p.code].count += 1;
-      stats[p.code].totalCost += p.cost;
+      stats[code].count += 1;
+      stats[code].totalCost += (p.cost || 0);
     });
     
-    // Calculate averages
     Object.keys(stats).forEach(code => {
-      stats[code].avgCost = stats[code].totalCost / stats[code].count;
+      stats[code].avgCost = stats[code].count > 0 ? stats[code].totalCost / stats[code].count : 0;
     });
     
     return stats;
-  }, [penalties]);
+  }, [sortedPenalties]);
 
   const exportToCSV = () => {
+    if (sortedPenalties.length === 0) {
+      alert('No penalties to export');
+      return;
+    }
+    
     const headers = ['Day', 'Hour', 'Code', 'Cost', 'Reason'];
     const rows = sortedPenalties.map(p => [
-      p.issued_time.day,
-      p.issued_time.hour,
-      p.code,
-      p.cost.toFixed(2),
-      `"${p.reason.replace(/"/g, '""')}"` // Escape quotes in reason
+      p.issued_time?.day ?? 0,
+      p.issued_time?.hour ?? 0,
+      p.code || '',
+      (p.cost || 0).toFixed(2),
+      `"${(p.reason || '').replace(/"/g, '""')}"`
     ]);
     
     const csvContent = [
@@ -69,49 +84,48 @@ function PenaltyLog({ penalties }: PenaltyLogProps) {
   return (
     <div className="penalty-log">
       <div className="penalty-header">
-        <h3>All Penalties ({penalties.length})</h3>
+        <h3>All Penalties ({sortedPenalties.length})</h3>
         <button onClick={exportToCSV} className="export-button">Export CSV</button>
       </div>
 
       <div className="penalty-summary">
         <div className="summary-item">
-          <strong>Total Penalties:</strong> {penalties.length}
+          <strong>Total Penalties:</strong> {sortedPenalties.length}
         </div>
         <div className="summary-item">
-          <strong>Total Cost:</strong> ${totalPenalty.toFixed(2)}
-        </div>
-        <div className="summary-item">
-          <strong>Avg Cost per Penalty:</strong> ${penalties.length > 0 ? (totalPenalty / penalties.length).toFixed(2) : '0.00'}
+          <strong>Total Cost:</strong> ${totalPenalty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </div>
       </div>
 
-      <div className="penalty-breakdown">
-        <h4>Penalty Breakdown by Type</h4>
-        <table className="penalty-stats-table">
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Count</th>
-              <th>Total Cost</th>
-              <th>Avg Cost</th>
-              <th>% of Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(penaltyStats)
-              .sort(([, a], [, b]) => b.totalCost - a.totalCost)
-              .map(([code, stats]) => (
-                <tr key={code}>
-                  <td><strong>{code}</strong></td>
-                  <td>{stats.count}</td>
-                  <td>${stats.totalCost.toFixed(2)}</td>
-                  <td>${stats.avgCost.toFixed(2)}</td>
-                  <td>{((stats.totalCost / totalPenalty) * 100).toFixed(1)}%</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      </div>
+      {Object.keys(penaltyStats).length > 0 && (
+        <div className="penalty-breakdown">
+          <h4>Penalty Breakdown by Type</h4>
+          <table className="penalty-stats-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Count</th>
+                <th>Total Cost</th>
+                <th>Avg Cost</th>
+                <th>% of Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(penaltyStats)
+                .sort(([, a], [, b]) => b.totalCost - a.totalCost)
+                .map(([code, stats]) => (
+                  <tr key={code}>
+                    <td><strong>{code}</strong></td>
+                    <td>{stats.count}</td>
+                    <td>${stats.totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td>${stats.avgCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td>{totalPenalty > 0 ? ((stats.totalCost / totalPenalty) * 100).toFixed(1) : '0.0'}%</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="penalty-table-section">
         <h4>Penalty Details</h4>
@@ -133,10 +147,10 @@ function PenaltyLog({ penalties }: PenaltyLogProps) {
                 {displayedPenalties.map((penalty, idx) => (
                   <tr key={idx}>
                     <td>{sortedPenalties.length - idx}</td>
-                    <td>Day {penalty.issued_time.day}, Hour {penalty.issued_time.hour}</td>
-                    <td><span className="penalty-code">{penalty.code}</span></td>
-                    <td className="cost-cell">${penalty.cost.toFixed(2)}</td>
-                    <td className="reason-cell">{penalty.reason}</td>
+                    <td>Day {penalty.issued_time?.day ?? '?'}, Hour {penalty.issued_time?.hour ?? '?'}</td>
+                    <td><span className="penalty-code">{penalty.code || 'UNKNOWN'}</span></td>
+                    <td className="cost-cell">${(penalty.cost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="reason-cell">{penalty.reason || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -156,4 +170,3 @@ function PenaltyLog({ penalties }: PenaltyLogProps) {
 }
 
 export default PenaltyLog;
-

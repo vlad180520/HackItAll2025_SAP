@@ -90,6 +90,7 @@ class SimulationService:
             state = self.simulation_runner.state_manager.state
             # Count rounds from decision log
             rounds = len(self.simulation_runner.decision_log)
+            logger.debug(f"get_status: Running - round {rounds}")
             return {
                 "status": "running",
                 "round": rounds,
@@ -102,28 +103,47 @@ class SimulationService:
         
         # If simulation completed, get from final report
         if self.simulation_state is not None:
+            status = self.simulation_state.get("status", "completed")
+            
+            # Handle error state
+            if status == "error":
+                return {
+                    "status": "error",
+                    "round": self.simulation_state.get("rounds_completed", 0),
+                    "costs": 0.0,
+                    "costs_formatted": "0,00",
+                    "penalties": [],
+                    "cumulative_decisions": 0,
+                    "cumulative_purchases": 0,
+                    "error": self.simulation_state.get("error", "Unknown error"),
+                }
+            
             penalty_log = self.simulation_state.get("penalty_log", [])
             # Convert PenaltyRecord objects to dicts if needed
-            if penalty_log and hasattr(penalty_log[0], 'dict'):
-                penalty_log = [p.dict() for p in penalty_log]
-            elif penalty_log and isinstance(penalty_log[0], dict):
-                pass  # Already dicts
-            else:
-                penalty_log = []
+            if penalty_log:
+                if hasattr(penalty_log[0], 'dict'):
+                    penalty_log = [p.dict() for p in penalty_log]
+                elif not isinstance(penalty_log[0], dict):
+                    penalty_log = []
             
             total_cost = self.simulation_state.get("total_cost", 0.0)
             final_state = self.simulation_state.get("final_state", {})
+            rounds_completed = self.simulation_state.get("rounds_completed", 0)
+            
+            logger.debug(f"get_status: Completed - {rounds_completed} rounds, cost {total_cost:.2f}")
+            
             return {
                 "status": "completed",
-                "round": self.simulation_state.get("rounds_completed", 0),
+                "round": rounds_completed,
                 "costs": total_cost,  # Numeric value
                 "costs_formatted": format_cost(total_cost),  # Formatted string
-                "penalties": penalty_log[-10:],  # Last 10 penalties
+                "penalties": penalty_log[-10:] if penalty_log else [],  # Last 10 penalties
                 "cumulative_decisions": final_state.get("cumulative_decisions", 0),
                 "cumulative_purchases": final_state.get("cumulative_purchases", 0),
             }
         
         # No simulation started
+        logger.debug("get_status: Not started")
         return {
             "status": "not_started",
             "round": 0,
@@ -165,21 +185,31 @@ class SimulationService:
         Returns:
             History dictionary with decision_log and cost_log
         """
-        if self.simulation_runner is None:
+        # If simulation is running, get live data
+        if self.simulation_runner is not None:
+            decision_log = list(self.simulation_runner.decision_log)  # Make a copy
+            cost_log = list(self.simulation_runner.cost_log)  # Make a copy
+            total_rounds = len(decision_log)
+            logger.debug(f"get_history: Running - {total_rounds} rounds")
+        # If simulation completed, get from stored state
+        elif self.simulation_state is not None:
+            decision_log = self.simulation_state.get("decision_log", [])
+            cost_log = self.simulation_state.get("cost_log", [])
+            total_rounds = self.simulation_state.get("rounds_completed", len(decision_log))
+            logger.debug(f"get_history: Completed - {total_rounds} rounds, cost_log has {len(cost_log)} entries")
+        else:
+            logger.debug("get_history: No data available")
             return {"decision_log": [], "cost_log": [], "total_rounds": 0}
         
-        decision_log = self.simulation_runner.decision_log
-        cost_log = self.simulation_runner.cost_log
-        
         # Apply limit if specified
-        if limit is not None:
+        if limit is not None and limit > 0:
             decision_log = decision_log[-limit:]
             cost_log = cost_log[-limit:]
         
         return {
             "decision_log": decision_log,
             "cost_log": cost_log,
-            "total_rounds": len(self.simulation_runner.decision_log),
+            "total_rounds": total_rounds,
         }
     
     def start_simulation(self, api_key: str, stop_existing: bool = True) -> None:
@@ -209,23 +239,15 @@ class SimulationService:
         try:
             logger.info("Starting simulation task")
             
-            # Initialize simulation state
-            self.simulation_state = {
-                "status": "running",
-                "rounds_completed": 0,
-                "total_cost": 0.0,
-                "penalty_log": [],
-            }
+            # Keep reference to previous state for comparison
+            # Don't clear simulation_state yet - let runner provide live data
+            # simulation_state will be updated with final report when done
             
             # Pass stop_existing flag and update callback to runner
             def update_progress(round_num: int, total_cost: float, penalties: list):
                 """Callback to update state during simulation."""
-                logger.info(f"Progress update: Round {round_num}, Cost {total_cost:.2f}")
-                if self.simulation_state:
-                    self.simulation_state["rounds_completed"] = round_num
-                    self.simulation_state["total_cost"] = total_cost
-                    self.simulation_state["penalty_log"] = penalties[-10:]  # Keep last 10
-                    logger.debug(f"State updated: {self.simulation_state['rounds_completed']} rounds, ${self.simulation_state['total_cost']:.2f}")
+                if round_num % 50 == 0:  # Log every 50 rounds
+                    logger.info(f"Progress update: Round {round_num}, Cost {total_cost:.2f}")
             
             final_report = self.simulation_runner.run(
                 api_key=api_key, 
@@ -235,8 +257,17 @@ class SimulationService:
             # Store session_id from final report
             if 'session_id' in final_report:
                 self.current_session_id = final_report['session_id']
+            
+            # Ensure final report has all required fields
+            final_report["status"] = "completed"
+            
+            # Store as simulation_state for persistence after runner is cleared
             self.simulation_state = final_report
-            logger.info("Simulation task completed")
+            
+            logger.info(f"Simulation task completed: {final_report.get('rounds_completed', 0)} rounds")
+            logger.info(f"Final cost: {final_report.get('total_cost', 0):.2f}")
+            logger.info(f"Decision log entries: {len(final_report.get('decision_log', []))}")
+            logger.info(f"Cost log entries: {len(final_report.get('cost_log', []))}")
         except Exception as e:
             logger.error(f"Error in simulation task: {e}")
             self.simulation_state = {"error": str(e), "status": "error"}

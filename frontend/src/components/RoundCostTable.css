@@ -1,91 +1,206 @@
 .round-cost-table {
-  background: white;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 0.4s ease-out;
 }
 
-.round-cost-table .table-header {
+.table-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-  margin-bottom: 16px;
-}
-
-.round-cost-table .header-actions {
-  display: flex;
-  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
-.round-cost-table h3 {
-  margin: 0;
-  color: #213547;
-  font-size: 1.25rem;
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
-.round-cost-table .total-rounds-info {
-  color: #646cff;
-  font-size: 0.875rem;
+.total-rounds-info {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-radius: 20px;
+}
+
+.export-button {
+  padding: 10px 20px;
+  font-size: 0.85rem;
   font-weight: 500;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.round-cost-table .export-button {
-  padding: 6px 12px;
-  font-size: 0.875rem;
-  background-color: #4CAF50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-  font-weight: 500;
+.export-button::before {
+  content: '📊';
 }
 
-.round-cost-table .export-button:hover {
-  background-color: #45a049;
+.export-button:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
 }
 
-.round-cost-table p {
-  color: #666;
-  margin: 20px 0;
+/* Table container for scroll */
+.table-container {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
 }
 
-.round-cost-table table {
+/* Table styles */
+table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.9rem;
+  min-width: 800px;
 }
 
-.round-cost-table thead {
-  background-color: #f8f9fa;
+thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
-.round-cost-table th {
-  padding: 12px 8px;
+th {
+  padding: 14px 16px;
   text-align: left;
   font-weight: 600;
-  border-bottom: 2px solid #e0e0e0;
-  color: #213547;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--border-color);
 }
 
-.round-cost-table td {
-  padding: 10px 8px;
-  border-bottom: 1px solid #e0e0e0;
-  color: #213547;
+th:first-child {
+  border-radius: 12px 0 0 0;
 }
 
-.round-cost-table tbody tr:hover {
-  background-color: #f8f9fa;
+th:last-child {
+  border-radius: 0 12px 0 0;
 }
 
-.round-cost-table .total-cost {
+td {
+  padding: 14px 16px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.9rem;
+  transition: background 0.2s ease;
+}
+
+tr:hover td {
+  background: rgba(0, 212, 255, 0.05);
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tr:last-child td:first-child {
+  border-radius: 0 0 0 12px;
+}
+
+tr:last-child td:last-child {
+  border-radius: 0 0 12px 0;
+}
+
+/* Round number column */
+.round-cell {
+  font-family: 'JetBrains Mono', monospace;
   font-weight: 600;
-  color: #646cff;
+  color: var(--accent-cyan) !important;
 }
 
-.round-cost-table .api-total {
+/* Time column */
+.time-cell {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted) !important;
+  font-size: 0.85rem;
+}
+
+/* Decisions and purchases columns */
+.decisions-cell {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.decisions-cell.has-decisions {
+  color: var(--accent-green) !important;
+}
+
+.decisions-cell.no-decisions {
+  color: var(--text-muted) !important;
+}
+
+.purchases-cell {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.purchases-cell.has-purchases {
+  color: var(--accent-blue) !important;
+}
+
+.purchases-cell.no-purchases {
+  color: var(--text-muted) !important;
+}
+
+/* API Total column */
+.api-total {
+  font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
-  color: #4CAF50;
-  background-color: #f0f8f0;
+  color: var(--accent-green) !important;
+}
+
+/* Rationale column */
+.rationale-cell {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted) !important;
+  font-size: 0.85rem;
+}
+
+.rationale-cell:hover {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Badge for recent rows */
+.recent-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--accent-green);
+  color: white;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  margin-left: 8px;
+  animation: pulse 2s infinite;
+}
+
+/* No data message */
+.round-cost-table p {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 40px;
+  font-size: 0.95rem;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  table {
+    min-width: 700px;
+  }
 }

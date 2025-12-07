@@ -1,40 +1,179 @@
 .flight-table {
   width: 100%;
+  animation: fadeIn 0.4s ease-out;
 }
 
 .flight-table h3 {
-  margin-top: 0;
-  color: #333;
+  margin: 0 0 20px 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.flight-table h3::before {
+  content: '🛫';
+}
+
+/* Table container for scroll */
+.table-container {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
 }
 
 .flight-table table {
   width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-}
-
-.flight-table th,
-.flight-table td {
-  padding: 12px;
-  text-align: left;
-  border-bottom: 1px solid #e0e0e0;
-  color: #000 !important;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 600px;
 }
 
 .flight-table th {
-  background-color: #f5f5f5;
-  font-weight: bold;
-  color: #333 !important;
+  padding: 14px 16px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
-.flight-table tr:hover {
-  background-color: #f9f9f9;
+.flight-table th:first-child {
+  border-radius: 12px 0 0 0;
 }
 
+.flight-table th:last-child {
+  border-radius: 0 12px 0 0;
+}
+
+.flight-table td {
+  padding: 14px 16px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.9rem;
+  transition: background 0.2s ease;
+}
+
+.flight-table tr:hover td {
+  background: rgba(0, 212, 255, 0.03);
+}
+
+.flight-table tr:last-child td {
+  border-bottom: none;
+}
+
+.flight-table tr:last-child td:first-child {
+  border-radius: 0 0 0 12px;
+}
+
+.flight-table tr:last-child td:last-child {
+  border-radius: 0 0 12px 0;
+}
+
+/* Round column */
+.round-cell {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: var(--accent-cyan) !important;
+}
+
+/* Time column */
+.time-cell {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted) !important;
+  font-size: 0.85rem;
+}
+
+/* Decisions and purchases columns */
+.decisions-cell {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.decisions-cell.has-decisions {
+  color: var(--accent-green) !important;
+}
+
+.decisions-cell.no-decisions {
+  color: var(--text-muted) !important;
+}
+
+.purchases-cell {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.purchases-cell.has-purchases {
+  color: var(--accent-blue) !important;
+}
+
+.purchases-cell.no-purchases {
+  color: var(--text-muted) !important;
+}
+
+/* Rationale column */
 .rationale-cell {
-  max-width: 400px;
+  max-width: 350px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-muted) !important;
+  font-size: 0.85rem;
 }
 
+.rationale-cell:hover {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Empty state */
+.no-flights {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px dashed var(--border-color);
+}
+
+.no-flights::before {
+  content: '✈️';
+  display: block;
+  font-size: 3rem;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+/* Badge for recent rows */
+.recent-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--accent-green);
+  color: white;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  margin-left: 8px;
+  animation: pulse 2s infinite;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .flight-table td,
+  .flight-table th {
+    padding: 10px 12px;
+    font-size: 0.85rem;
+  }
+  
+  .rationale-cell {
+    max-width: 150px;
+  }
+}

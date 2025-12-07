@@ -8,80 +8,76 @@ interface RoundCostTableProps {
 }
 
 function RoundCostTable({ history, showAll = false }: RoundCostTableProps) {
-  const costs = useMemo(() => {
-    const costLog = history?.cost_log || [];
-    return showAll ? costLog.reverse() : costLog.slice(-20).reverse();
+  const data = useMemo(() => {
+    if (!history?.decision_log || !history?.cost_log) return [];
+    
+    // Merge decision_log and cost_log by round
+    const merged = history.decision_log.map((decision, idx) => {
+      const costEntry = history.cost_log[idx] || {};
+      return {
+        round: decision.round,
+        time: decision.time,
+        decisions: decision.decisions,
+        purchases: decision.purchases,
+        rationale: decision.rationale,
+        api_total_cost: costEntry.api_total_cost || 0,
+        incremental_cost: costEntry.incremental_cost || 0,
+      };
+    });
+    
+    // Sort by round descending, then limit
+    const sorted = [...merged].sort((a, b) => b.round - a.round);
+    return showAll ? sorted : sorted.slice(0, 20);
   }, [history, showAll]);
 
-  const formatCost = (cost: number) => {
-    return cost.toFixed(2);
-  };
-
-  const calculateTotalCost = (costs: Record<string, number>) => {
-    return Object.values(costs).reduce((sum, val) => sum + val, 0);
+  const formatCost = (cost: number | undefined | null) => {
+    if (cost === undefined || cost === null || isNaN(cost)) return '0.00';
+    return cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
   const exportToCSV = () => {
-    if (!history || history.cost_log.length === 0) {
+    if (!history || !history.decision_log || history.decision_log.length === 0) {
       alert('No data to export');
       return;
     }
 
-    // Prepare CSV header
-    const headers = [
-      'Round',
-      'Loading Cost',
-      'Movement Cost',
-      'Processing Cost',
-      'Purchase Cost',
-      'Penalties',
-      'Calculated Total',
-      'API Total'
-    ];
+    const headers = ['Round', 'Day', 'Hour', 'Decisions', 'Purchases', 'API Total Cost', 'Rationale'];
+    const rows = data.map(entry => [
+      entry.round,
+      entry.time?.day || 0,
+      entry.time?.hour || 0,
+      entry.decisions,
+      entry.purchases,
+      formatCost(entry.api_total_cost),
+      `"${(entry.rationale || '').replace(/"/g, '""')}"`
+    ]);
 
-    // Prepare CSV rows
-    const rows = history.cost_log.map(costEntry => {
-      const calculatedTotal = calculateTotalCost(costEntry.costs);
-      const apiTotal = costEntry.api_total_cost || 0;
-      return [
-        costEntry.round,
-        formatCost(costEntry.costs.loading_cost || 0),
-        formatCost(costEntry.costs.movement_cost || 0),
-        formatCost(costEntry.costs.processing_cost || 0),
-        formatCost(costEntry.costs.purchase_cost || 0),
-        formatCost(costEntry.costs.penalties || 0),
-        formatCost(calculatedTotal),
-        formatCost(apiTotal)
-      ];
-    });
-
-    // Create CSV content
     const csvContent = [
       headers.join(','),
       ...rows.map(row => row.join(','))
     ].join('\n');
 
-    // Create and download file
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `round_costs_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `round_data_${new Date().toISOString().slice(0, 10)}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
+  const totalRounds = history?.total_rounds || 0;
+
   return (
     <div className="round-cost-table">
       <div className="table-header">
-        <h3>Round Costs</h3>
         <div className="header-actions">
-          {history && (
+          {history && history.decision_log && (
             <>
               <span className="total-rounds-info">
-                Showing {costs.length} of {history.total_rounds} rounds
+                Showing {data.length} of {totalRounds} rounds
               </span>
               <button onClick={exportToCSV} className="export-button">
                 Export CSV
@@ -90,41 +86,51 @@ function RoundCostTable({ history, showAll = false }: RoundCostTableProps) {
           )}
         </div>
       </div>
-      {costs.length === 0 ? (
-        <p>No cost data yet. Start the simulation to see round costs.</p>
+      
+      {data.length === 0 ? (
+        <p>No data yet. Start the simulation to see round data.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Round</th>
-              <th>Loading Cost</th>
-              <th>Movement Cost</th>
-              <th>Processing Cost</th>
-              <th>Purchase Cost</th>
-              <th>Penalties</th>
-              <th>Total Round Cost</th>
-              <th>API Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {costs.map((costEntry, idx) => {
-              const calculatedTotal = calculateTotalCost(costEntry.costs);
-              const apiTotal = costEntry.api_total_cost || 0;
-              return (
+        <div className="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Round</th>
+                <th>Time</th>
+                <th>Decisions</th>
+                <th>Purchases</th>
+                <th>API Total Cost</th>
+                <th>Rationale</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((entry, idx) => (
                 <tr key={idx}>
-                  <td>{costEntry.round}</td>
-                  <td>{formatCost(costEntry.costs.loading_cost || 0)}</td>
-                  <td>{formatCost(costEntry.costs.movement_cost || 0)}</td>
-                  <td>{formatCost(costEntry.costs.processing_cost || 0)}</td>
-                  <td>{formatCost(costEntry.costs.purchase_cost || 0)}</td>
-                  <td>{formatCost(costEntry.costs.penalties || 0)}</td>
-                  <td className="total-cost">{formatCost(calculatedTotal)}</td>
-                  <td className="api-total">{formatCost(apiTotal)}</td>
+                  <td className="round-cell">
+                    {entry.round}
+                    {idx === 0 && data.length > 1 && (
+                      <span className="recent-badge">Latest</span>
+                    )}
+                  </td>
+                  <td className="time-cell">
+                    Day {entry.time?.day ?? '?'}, Hour {entry.time?.hour ?? '?'}
+                  </td>
+                  <td className={`decisions-cell ${entry.decisions > 0 ? 'has-decisions' : 'no-decisions'}`}>
+                    {entry.decisions > 0 ? entry.decisions : '—'}
+                  </td>
+                  <td className={`purchases-cell ${entry.purchases > 0 ? 'has-purchases' : 'no-purchases'}`}>
+                    {entry.purchases > 0 ? entry.purchases : '—'}
+                  </td>
+                  <td className="api-total">
+                    ${formatCost(entry.api_total_cost)}
+                  </td>
+                  <td className="rationale-cell" title={entry.rationale || ''}>
+                    {entry.rationale || '—'}
+                  </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

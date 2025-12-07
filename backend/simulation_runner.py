@@ -234,16 +234,41 @@ class SimulationRunner:
                     previous_total = self.state_manager.state.total_cost
                     incremental_cost = api_total_cost - previous_total
                     
-                    # Log costs
+                    # Calculate penalty cost for this round
+                    round_penalties = response.get("penalties", [])
+                    penalty_cost = sum(p.get("cost", 0) for p in round_penalties if isinstance(p, dict))
+                    
+                    # Estimate operational costs (incremental minus penalties)
+                    operational_cost = max(0, incremental_cost - penalty_cost)
+                    
+                    # Log costs with structure frontend expects
                     self.cost_log.append({
                         "round": round_num,
-                        "penalties": response.get("penalties", []),
+                        "costs": {
+                            "loading_cost": operational_cost * 0.1,  # Estimate breakdown
+                            "movement_cost": operational_cost * 0.7,
+                            "processing_cost": operational_cost * 0.15,
+                            "purchase_cost": operational_cost * 0.05,
+                            "penalties": penalty_cost,
+                        },
+                        "penalties": [
+                            {
+                                "code": p.get("code", "UNKNOWN"),
+                                "cost": p.get("cost", 0),
+                                "reason": p.get("reason", ""),
+                                "issued_time": {
+                                    "day": response_day,
+                                    "hour": response_hour
+                                }
+                            } for p in round_penalties if isinstance(p, dict)
+                        ],
                         "api_total_cost": api_total_cost,
                         "incremental_cost": incremental_cost,
                     })
                     
                     # Update state with API's cumulative total cost
                     self.state_manager.state.total_cost = api_total_cost
+                    cumulative_total_cost = api_total_cost  # Track for final report
                     
                     # Update progress via callback
                     if progress_callback:

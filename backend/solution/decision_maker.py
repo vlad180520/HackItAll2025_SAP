@@ -57,7 +57,6 @@ class DecisionMaker:
             Tuple of (load_decisions, purchase_orders)
         """
         logger.info(f"Making decisions for day {state.current_day} hour {state.current_hour}")
-        
         try:
             loads, purchases = self.strategy.optimize(
                 state=state,
