@@ -55,14 +55,9 @@ class StateManager:
                         f"Negative inventory at {origin} for {class_type}: {new_quantity}"
                     )
             
-            # Create pending movement for arrival
-            arrival_movement = KitMovement(
-                movement_type="LOAD",
-                airport=flight.destination,
-                kits_per_class=decision.kits_per_class,
-                execute_time=flight.scheduled_arrival,
-            )
-            self.state.pending_movements.append(arrival_movement)
+            # NOTE: We do NOT track arrival movements locally!
+            # The API handles kit arrivals at destinations internally.
+            # We only track origin deductions (to know available stock for loading).
             
             logger.debug(
                 f"Applied load decision for flight {decision.flight_id}: "
@@ -77,26 +72,25 @@ class StateManager:
             orders: List of purchase orders
         """
         for order in orders:
-            # Purchases are delivered to HUB
-            hub_code = None
-            for airport_code, inventory in self.state.airport_inventories.items():
-                # Find HUB (assuming we track this separately or check airport.is_hub)
-                # For now, we'll need to pass hub_code or find it from airport data
-                # This is a simplification - in practice, we'd have airport objects
-                pass
+            # Find HUB airport code from inventory keys
+            hub_code = "HUB1"  # Default
+            for airport_code in self.state.airport_inventories.keys():
+                if airport_code.upper().startswith("HUB"):
+                    hub_code = airport_code
+                    break
             
             # Create delivery movement
             delivery_movement = KitMovement(
                 movement_type="DELIVERY",
-                airport=hub_code or "HUB",  # Default to "HUB" if not found
+                airport=hub_code,
                 kits_per_class=order.kits_per_class,
                 execute_time=order.expected_delivery,
             )
             self.state.pending_movements.append(delivery_movement)
             
-            logger.debug(
-                f"Applied purchase order: {order.kits_per_class} "
-                f"delivery at {order.expected_delivery}"
+            logger.info(
+                f"Purchase order scheduled: {order.kits_per_class} "
+                f"delivery to {hub_code} at day {order.expected_delivery.day} hour {order.expected_delivery.hour}"
             )
     
     def advance_time_to(self, day: int, hour: int, airports: Dict[str, Airport]) -> None:
@@ -123,34 +117,14 @@ class StateManager:
                 self.state.airport_inventories[airport_code] = {}
             
             if movement.movement_type == "LOAD":
-                # Kits arrive at destination, enter processing queue
-                if airport_code not in self.state.in_process_kits:
-                    self.state.in_process_kits[airport_code] = []
-                
-                # Get processing time from airport
-                airport = airports.get(airport_code)
-                if airport:
-                    processing_time = max(
-                        airport.processing_times.get(class_type, 2)
-                        for class_type in movement.kits_per_class.keys()
-                    )
-                    processing_complete = ReferenceHour(
-                        day=movement.execute_time.day,
-                        hour=movement.execute_time.hour + processing_time,
-                    )
-                    
-                    processing_movement = KitMovement(
-                        movement_type="PROCESSING",
-                        airport=airport_code,
-                        kits_per_class=movement.kits_per_class,
-                        execute_time=processing_complete,
-                    )
-                    self.state.in_process_kits[airport_code].append(processing_movement)
-                else:
-                    # No airport data, assume immediate availability
-                    for class_type, quantity in movement.kits_per_class.items():
-                        current = self.state.airport_inventories[airport_code].get(class_type, 0)
-                        self.state.airport_inventories[airport_code][class_type] = current + quantity
+                # NOTE: We do NOT track load arrivals locally!
+                # The API handles inventory tracking for flight arrivals internally.
+                # We only track what WE know about (our load decisions and purchases).
+                # Adding arrivals here would double-count since API already does it.
+                logger.debug(
+                    f"Skipping load arrival tracking for {airport_code} "
+                    f"(API handles this internally)"
+                )
                 
             elif movement.movement_type == "DELIVERY":
                 # Purchased kits arrive at HUB
@@ -161,24 +135,9 @@ class StateManager:
             # Remove from pending
             self.state.pending_movements.remove(movement)
         
-        # Process completed processing movements
-        for airport_code, processing_list in list(self.state.in_process_kits.items()):
-            completed = [
-                m for m in processing_list
-                if m.execute_time <= target_time
-            ]
-            
-            for movement in completed:
-                # Kits become available in inventory
-                for class_type, quantity in movement.kits_per_class.items():
-                    current = self.state.airport_inventories[airport_code].get(class_type, 0)
-                    self.state.airport_inventories[airport_code][class_type] = current + quantity
-                
-                processing_list.remove(movement)
-            
-            # Clean up empty lists
-            if not processing_list:
-                del self.state.in_process_kits[airport_code]
+        # NOTE: We do NOT track processing completion for LOAD movements
+        # (arrivals are handled by API internally)
+        # We only track DELIVERY (purchase) arrivals above
         
         # Update current time
         self.state.current_day = day

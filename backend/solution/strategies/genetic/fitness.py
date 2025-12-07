@@ -4,6 +4,12 @@ Evaluates solutions based on:
 - Operational costs (loading, processing, transport, purchase)
 - Penalties (unfulfilled passengers, overload, inventory violations)
 
+Penalty formulas match PenaltyFactors.java exactly:
+- UnfulfilledKits = UNFULFILLED_FACTOR * distance * kitCost * unfulfilled_qty
+- PlaneOverload = OVERLOAD_FACTOR * distance * fuelCost * kitCost * overload_qty
+- NegativeInventory = NEGATIVE_INV_FACTOR * |negative_stock|
+- OverCapacity = OVER_CAPACITY_FACTOR * overflow_qty
+
 Uses timeline-aware inventory tracking where purchases become available
 after lead_time + processing_time.
 """
@@ -156,23 +162,22 @@ def evaluate_fitness(
                 available_at_dest = arr_hours + processing_time
                 inventory_deltas[destination][class_type][available_at_dest] += load_qty
             
-            # Penalty: unfulfilled passengers (progressive)
+            # Penalty: unfulfilled passengers
+            # Java formula: UNFULFILLED_FACTOR * distance * kitCost * unfulfilled_qty
             unfulfilled = max(0, passengers - load_qty)
             if unfulfilled > 0:
-                if unfulfilled <= 2:
-                    penalty += unfulfilled * unfulfilled_penalty * 0.8
-                elif unfulfilled <= 5:
-                    penalty += unfulfilled * unfulfilled_penalty * 1.0
-                else:
-                    penalty += unfulfilled * unfulfilled_penalty * 1.5
+                kit_cost = KIT_DEFINITIONS[class_type]["cost"]
+                distance = flight.planned_distance
+                penalty += unfulfilled_penalty * distance * kit_cost * unfulfilled
             
             # Penalty: overload (exceeds aircraft capacity)
+            # Java formula: OVERLOAD_FACTOR * distance * fuelCost * kitCost * overload
             overload = max(0, load_qty - capacity)
             if overload > 0:
-                if overload <= 2:
-                    penalty += overload * overload_penalty * 0.5
-                else:
-                    penalty += overload * overload_penalty
+                kit_cost = KIT_DEFINITIONS[class_type]["cost"]
+                distance = flight.planned_distance
+                fuel_cost = aircraft.fuel_cost_per_km
+                penalty += overload_penalty * distance * fuel_cost * kit_cost * overload
     
     # Compute inventory violations at each hour
     all_hours = set()

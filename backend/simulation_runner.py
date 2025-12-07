@@ -5,6 +5,9 @@ To change the optimization strategy, only modify files in /solution directory.
 """
 
 import logging
+import json
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 from api_client import ExternalAPIClient, ValidationError
 from state_manager import StateManager
@@ -18,6 +21,27 @@ from models.game_state import PenaltyRecord
 from config import Config, TOTAL_ROUNDS
 
 logger = logging.getLogger(__name__)
+
+# Data response logger
+_data_log_file = None
+
+
+def setup_data_response_log():
+    """Setup data_response.log file for detailed analysis."""
+    global _data_log_file
+    if _data_log_file is None:
+        _data_log_file = open('data_response.log', 'a')
+        _data_log_file.write(f"\n{'='*80}\n")
+        _data_log_file.write(f"SIMULATION STARTED: {datetime.now().isoformat()}\n")
+        _data_log_file.write(f"{'='*80}\n\n")
+
+
+def log_round_data(round_num: int, data: Dict):
+    """Log round data to data_response.log."""
+    global _data_log_file
+    if _data_log_file:
+        _data_log_file.write(f"[Round {round_num}] {json.dumps(data)}\n")
+        _data_log_file.flush()
 
 
 class SimulationRunner:
@@ -76,6 +100,9 @@ class SimulationRunner:
         Returns:
             Final report dictionary
         """
+        # Setup data logging
+        setup_data_response_log()
+        
         logger.info(f"Starting simulation with max_rounds={max_rounds}")
         
         # Start session
@@ -159,6 +186,16 @@ class SimulationRunner:
                     # Update state with response (this updates time to match API)
                     self._update_state_from_response(response, current_time)
                     
+                    # Record penalties for reactive purchasing
+                    # The SimpleReactiveStrategy uses this to decide when to buy
+                    penalties = response.get("penalties", [])
+                    if hasattr(self.optimizer, 'record_penalties'):
+                        self.optimizer.record_penalties(penalties)
+                    
+                    # NOTE: We do NOT track inventory locally anymore!
+                    # The API handles all inventory tracking internally.
+                    # Local tracking was causing drift and massive cost overruns.
+                    
                     # Update cumulative counters
                     self.state_manager.state.cumulative_decisions += len(decisions)
                     self.state_manager.state.cumulative_purchases += len(purchases)
@@ -168,7 +205,23 @@ class SimulationRunner:
                     response_hour = response.get("hour", current_time.hour)
                     api_total_cost = response.get("totalCost", 0.0)  # Cumulative cost from API
                     
+                    # Prepare purchase details for logging
+                    purchase_details = total_purchases if sum(total_purchases.values()) > 0 else {}
+                    
                     # Log round decisions
+                    round_data = {
+                        "round": round_num,
+                        "time": {"day": response_day, "hour": response_hour},
+                        "decisions_count": len(decisions),
+                        "purchases": purchase_details,
+                        "total_purchases": sum(total_purchases.values()),
+                        "api_total_cost": api_total_cost,
+                        "penalties": response.get("penalties", []),
+                    }
+                    
+                    # Log to data_response.log for analysis
+                    log_round_data(round_num, round_data)
+                    
                     self.decision_log.append({
                         "round": round_num,
                         "time": {"day": response_day, "hour": response_hour},

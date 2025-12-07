@@ -9,31 +9,33 @@ from models.kit import KitLoadDecision, KitPurchaseOrder
 from models.airport import Airport
 from models.aircraft import AircraftType
 from solution.config import SolutionConfig
-from solution.strategies.genetic_strategy import GeneticStrategy, GeneticConfig
+from solution.strategies.final_strategy import FinalStrategy
 
 logger = logging.getLogger(__name__)
 
 
 class DecisionMaker:
-    """Main decision maker - uses Genetic Algorithm strategy."""
+    """Main decision maker - FINAL optimized strategy.
+    
+    Final strategy:
+    - Loads only when movement cost < unfulfilled penalty
+    - Minimal purchasing
+    - Target: ~1.66B (theoretical minimum)
+    """
     
     def __init__(self, config: SolutionConfig = None):
         if config is None:
             config = SolutionConfig.default()
         
         self.config = config
+        self.strategy = FinalStrategy(config=self.config)
         
-        # Use default GeneticConfig for consistency
-        # Parameters optimized for speed/accuracy balance
-        ga_config = GeneticConfig()
-        
-        self.strategy = GeneticStrategy(config=self.config, ga_config=ga_config)
-        
-        logger.info(
-            f"DecisionMaker initialized with GeneticStrategy: "
-            f"pop={ga_config.population_size}, gens={ga_config.num_generations}, "
-            f"horizon={ga_config.horizon_hours}h"
-        )
+        logger.info("DecisionMaker initialized with FinalStrategy")
+    
+    def record_penalties(self, penalties: List[Dict]) -> None:
+        """Record penalties for strategy adjustment."""
+        if hasattr(self.strategy, 'record_penalties'):
+            self.strategy.record_penalties(penalties)
     
     def make_decisions(
         self,
@@ -43,7 +45,7 @@ class DecisionMaker:
         aircraft_types: Dict[str, AircraftType],
     ) -> Tuple[List[KitLoadDecision], List[KitPurchaseOrder]]:
         """
-        Make all decisions for current round using Genetic Algorithm.
+        Make all decisions for current round.
         
         Args:
             state: Current game state
@@ -69,24 +71,10 @@ class DecisionMaker:
             
         except Exception as e:
             logger.error(f"Error making decisions: {e}", exc_info=True)
-            # Return empty decisions on error
             return [], []
     
     def update_config(self, new_config: SolutionConfig):
-        """Update configuration and recreate genetic strategy with optimized parameters."""
+        """Update configuration."""
         self.config = new_config
-        
-        ga_config = GeneticConfig(
-            population_size=60,
-            num_generations=40,
-            tournament_size=4,
-            crossover_rate=0.85,
-            mutation_rate=0.15,
-            elitism_count=3,
-            horizon_hours=3,
-            no_improvement_limit=12
-        )
-        
-        self.strategy = GeneticStrategy(config=new_config, ga_config=ga_config)
-        logger.info("Configuration updated, GeneticStrategy recreated with optimized parameters")
-
+        self.strategy = FinalStrategy(config=new_config)
+        logger.info("Configuration updated, FinalStrategy recreated")

@@ -13,7 +13,6 @@ from models.aircraft import AircraftType
 from config import CLASS_TYPES
 
 from solution.strategies.genetic.types import Individual
-from solution.strategies.genetic.config import GeneticConfig
 
 
 def tournament_selection(

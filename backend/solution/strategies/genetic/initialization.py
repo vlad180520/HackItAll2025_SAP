@@ -7,8 +7,12 @@ Creates diverse initial population with different strategies:
 
 All variants ensure at least passenger coverage before clamping to availability/capacity.
 Flights are processed chronologically with arrivals applied before departures.
+
+IMPORTANT: Purchase computation needs ALL visible flights (not just loading flights)
+to properly forecast demand.
 """
 
+import logging
 import random
 from typing import Dict, List
 
@@ -26,11 +30,27 @@ from solution.strategies.genetic.purchases import (
 )
 from solution.strategies.genetic.precompute import sort_flights_chronologically
 
+logger = logging.getLogger(__name__)
+
+# Module-level storage for all flights (for purchase computation)
+_all_visible_flights: List[Flight] = []
+
+
+def set_all_visible_flights(flights: List[Flight]):
+    """Store all visible flights for purchase computation.
+    
+    This must be called BEFORE initialize_population with the full flight list,
+    not just the filtered loading flights.
+    """
+    global _all_visible_flights
+    _all_visible_flights = flights
+    logger.debug(f"Set {len(flights)} all_visible_flights for purchase computation")
+
 
 def initialize_population(
     ga_config: GeneticConfig,
     state: GameState,
-    flights: List[Flight],
+    flights: List[Flight],  # These are loading flights (within horizon)
     airports: Dict[str, Airport],
     aircraft_types: Dict[str, AircraftType],
     now_hours: int,
@@ -120,9 +140,11 @@ def _create_conservative_individual(
             if origin in inventory_snapshot and class_type in inventory_snapshot[origin]:
                 inventory_snapshot[origin][class_type] -= load
     
-    # Minimal purchases - only critical shortages
+    # Minimal purchases - use ALL visible flights for demand calculation
+    # This is critical: purchase computation needs full flight list, not just loading flights
+    all_flights = _all_visible_flights if _all_visible_flights else flights
     individual.purchase_genes = compute_purchase_genes_minimal(
-        ga_config, state, flights, airports, now_hours
+        ga_config, state, all_flights, airports, now_hours
     )
     
     return individual
@@ -183,9 +205,10 @@ def _create_aggressive_individual(
             if origin in inventory_snapshot and class_type in inventory_snapshot[origin]:
                 inventory_snapshot[origin][class_type] -= load
     
-    # Proactive purchases
+    # Proactive purchases - use ALL visible flights for demand calculation
+    all_flights = _all_visible_flights if _all_visible_flights else flights
     individual.purchase_genes = compute_purchase_genes_simple(
-        ga_config, state, flights, airports, now_hours
+        ga_config, state, all_flights, airports, now_hours
     )
     
     return individual
@@ -241,8 +264,10 @@ def _create_random_individual(
             if origin in inventory_snapshot and class_type in inventory_snapshot[origin]:
                 inventory_snapshot[origin][class_type] -= load
     
+    # Use ALL visible flights for purchase computation
+    all_flights = _all_visible_flights if _all_visible_flights else flights
     individual.purchase_genes = compute_purchase_genes_simple(
-        ga_config, state, flights, airports, now_hours
+        ga_config, state, all_flights, airports, now_hours
     )
     
     return individual
@@ -306,9 +331,10 @@ def create_greedy_individual(
             if origin in inventory_snapshot and class_type in inventory_snapshot[origin]:
                 inventory_snapshot[origin][class_type] -= load
     
-    # Use updated buy-when-needed purchase logic
+    # Use ALL visible flights for purchase computation (not just loading flights)
+    all_flights = _all_visible_flights if _all_visible_flights else flights
     individual.purchase_genes = compute_purchase_genes_simple(
-        ga_config, state, flights, airports, now_hours
+        ga_config, state, all_flights, airports, now_hours
     )
     
     return individual
