@@ -46,8 +46,10 @@ class FinalStrategy:
         self.pending_purchases: Dict[str, int] = defaultdict(int)
         self.initialized = False
         
-        # Cost threshold: only load if movement < X% of unfulfilled penalty
-        self.cost_threshold = 0.7  # Load only if movement < 70% of unfulfilled
+        # Cost threshold: slightly more permissive to reduce unfulfilled penalties
+        self.cost_threshold = 0.9  # Load if movement < 90% of unfulfilled
+        # Small passenger buffer to reduce under-coverage
+        self.load_buffer_pct = 0.05
         
         logger.info("FINAL STRATEGY initialized")
     
@@ -152,7 +154,8 @@ class FinalStrategy:
                 
                 available = self._get_available(origin, class_type)
                 capacity = aircraft.kit_capacity.get(class_type, 0)
-                load = min(pax, available, capacity)
+                buffered = pax + int(pax * self.load_buffer_pct)
+                load = min(buffered, available, capacity)
                 
                 if load > 0:
                     kits_to_load[class_type] = load
@@ -169,8 +172,9 @@ class FinalStrategy:
                     kits_per_class=kits_to_load
                 ))
         
-        # Very conservative purchasing - only every 72 hours when stock is critically low
-        if self.hub_code and self.round % 72 == 1:
+        # Purchase more often, but stop late in game to avoid end-of-game stock
+        hours_left = 720 - current_hour
+        if self.hub_code and self.round % 24 == 1 and hours_left > 48:
             hub_inv = self.inventory.get(self.hub_code, {})
             hub_cap = self.hub_capacity
             
@@ -182,9 +186,12 @@ class FinalStrategy:
                 pending = self.pending_purchases.get(class_type, 0)
                 room = capacity - current_stock - pending
                 
-                # Only buy if stock < 10% capacity
-                if current_stock < capacity * 0.1 and room > 0:
-                    buy_amount = min(int(capacity * 0.05), room)  # Buy only 5%
+                # Buy if stock < 30% capacity
+                if current_stock < capacity * 0.3 and room > 0:
+                    # Refill up to 60% capacity, bounded by room
+                    target = int(capacity * 0.6)
+                    needed = max(0, target - current_stock - pending)
+                    buy_amount = min(needed, room)
                     if buy_amount > 0:
                         kits_to_buy[class_type] = buy_amount
                         self.pending_purchases[class_type] += buy_amount
@@ -202,4 +209,3 @@ class FinalStrategy:
                 ))
         
         return load_decisions, purchase_orders
-
